@@ -134,8 +134,8 @@ if __name__ == "__main__":
     dir_list = [filename for filename in dir_list if pattern.match(filename)]
 
     # Find the index of the starting file
-    start_file = 'consolidate_json_11.json'
-    start_index = dir_list.index(start_file)
-    dir_list = dir_list[start_index:]
+    # start_file = 'consolidate_json_11.json'
+    # start_index = dir_list.index(start_file)
+    # dir_list = dir_list[start_index:]
 
     main_process()

@@ -110,7 +110,7 @@ def select_table_db(connection_string:str, table_name:str):
     try:
         with psycopg.connect(connection_string) as conn:
             with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-                cur.execute(f"SELECT * FROM {TABLE_NAME} LIMIT 10")
+                cur.execute(f"SELECT * FROM {table_name} LIMIT 10")
                 rows = cur.fetchall()
                 for row in rows:
                     logger.info(f"Row: {row}")

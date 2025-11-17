@@ -3,6 +3,16 @@ import os
 import logging
 from pythonjsonlogger import jsonlogger
 
+
+def diff_lists_set(list1: list, list2: list):
+    """
+    Returns the difference between two lists using sets:
+    """
+    set1, set2 = set(list1), set(list2)
+    diff1 = set1 - set2   # Elements in list1 but not in list2
+    diff2 = set2 - set1   # Elements in list2 but not in list1
+    return list(diff1), list(diff2)
+
 def set_datetime_local():
     """ Get current datetime in 'Europe/Warsaw' timezone formatted as YYYYMMDD_HHMMSS """
     import time
