@@ -317,8 +317,9 @@ def split_text_by_header_regex(text: str) -> List[Document]:
         else:
             current_chunk.append(line)
 
+
     if current_chunk:
-        chunks_content.append('\n |sep| '.join(current_chunk))
+        chunks_content.append('\n\n\n'.join(current_chunk))
 
     documents = [Document(page_content=content.strip()) for content in chunks_content if content.strip()]
     #documents = [content.strip() for content in chunks_content if content.strip()]

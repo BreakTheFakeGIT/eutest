@@ -1,0 +1,570 @@
+I use Langchain framework.
+I have got text. I am gonna split text into chunks.
+I want to add local Ollama model to create embeddings and calculate cosinsum corelation.
+I use psycopg 3 not alchemy.
+In the next step I want to insert into postgres data base. I use psycopg 3 not alchemy.
+Finally I want to select data from databas
+Write a function code in Python.
+
+Assumptions:
+You have a local Ollama model running (e.g., llama2, mistral, etc.).
+You have LangChain installed and configured to use Ollama for embeddings.
+Your PostgreSQL database is accessible and the table is already created (or you can add a creation step).
+You want to store chunks with their embeddings and retrieve similar ones based on cosine similarity.
+
+
+
+Python
+import numpy as np
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.embeddings import OllamaEmbeddings
+from psycopg import connect
+from psycopg.rows import dict_row
+
+def process_text_and_store(
+    text: str,
+    chunk_size: int,
+    chunk_overlap: int,
+    db_config: dict,
+    table_name: str = "text_chunks"
+):
+    # 1. Split text into chunks
+    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    chunks = splitter.split_text(text)
+
+    # 2. Create embeddings using local Ollama
+    embedder = OllamaEmbeddings(model="llama2")  # Change model name if needed
+    embeddings = embedder.embed_documents(chunks)
+
+    # 3. Connect to PostgreSQL
+    with connect(**db_config, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            # Optional: Create table if not exists
+            cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS {table_name} (
+                    id SERIAL PRIMARY KEY,
+                    chunk TEXT,
+                    embedding FLOAT8[]
+                );
+            """)
+            # 4. Insert chunks and embeddings
+            for chunk, embedding in zip(chunks, embeddings):
+                cur.execute(
+                    f"INSERT INTO {table_name} (chunk, embedding) VALUES (%s, %s);",
+                    (chunk, embedding)
+                )
+            conn.commit()
+
+    print(f"Inserted {len(chunks)} chunks into {table_name}.")
+
+def find_similar_chunks(
+    query: str,
+    db_config: dict,
+    table_name: str = "text_chunks",
+    top_k: int = 5
+):
+    # 1. Create embedding for query
+    embedder = OllamaEmbeddings(model="llama2")
+    query_embedding = np.array(embedder.embed_query(query))
+
+    # 2. Fetch all embeddings from DB
+    with connect(**db_config, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT chunk, embedding FROM {table_name};")
+            rows = cur.fetchall()
+
+    # 3. Compute cosine similarity
+    def cosine_similarity(a, b):
+        a, b = np.array(a), np.array(b)
+        return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+    similarities = [
+        (row["chunk"], cosine_similarity(query_embedding, row["embedding"]))
+        for row in rows
+    ]
+
+    # 4. Return top_k most similar chunks
+    similarities.sort(key=lambda x: x[1], reverse=True)
+    return similarities[:top_k]
+
+Pokaż więcej wierszy
+🧪 Example Usage
+
+
+
+Python
+db_config = {
+    "host": "localhost",
+    "port": 5432,
+    "dbname": "your_db",
+    "user": "your_user",
+    "password": "your_password"
+}
+
+text = "Your long document or input text here..."
+process_text_and_store(text, chunk_size=300, chunk_overlap=50, db_config=db_config)
+
+results = find_similar_chunks("search query", db_config=db_config)
+for chunk, score in results:
+    print(f"Score: {score:.4f} | Chunk: {chunk[:100]}...")
+Would you like me to help you:
+
+Add support for batch querying?
+Optimize for large documents?
+Create a script to initialize the database schema?
+Let me know how you'd like to extend this!
+
+
+
+
+
+
+
+
+You said:
+
+Add batch querying support
+Great! Here's how you can extend the previous code to support batch querying—meaning you can pass a list of queries and get the top-k similar chunks for each one.
+Updated Function: Batch Querying Support
+
+
+
+Python
+def find_similar_chunks_batch(
+    queries: list[str],
+    db_config: dict,
+    table_name: str = "text_chunks",
+    top_k: int = 5
+) -> dict:
+    """
+    For each query in the list, return top_k most similar chunks from the database.
+    Returns a dictionary: {query: [(chunk, similarity_score), ...]}
+    """
+    embedder = OllamaEmbeddings(model="llama2")
+    query_embeddings = [np.array(embedder.embed_query(q)) for q in queries]
+
+    # Fetch all chunks and embeddings from DB
+    with connect(**db_config, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT chunk, embedding FROM {table_name};")
+            rows = cur.fetchall()
+
+    # Cosine similarity function
+    def cosine_similarity(a, b):
+        a, b = np.array(a), np.array(b)
+        return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+    # Compute similarities for each query
+    results = {}
+    for query, q_emb in zip(queries, query_embeddings):
+        similarities = [
+            (row["chunk"], cosine_similarity(q_emb, row["embedding"]))
+            for row in rows
+        ]
+        similarities.sort(key=lambda x: x[1], reverse=True)
+        results[query] = similarities[:top_k]
+
+    return results
+
+Pokaż więcej wierszy
+🧪 Example Usage
+
+
+
+Python
+queries = [
+    "What is the main idea?",
+    "Explain the technical details.",
+    "Summarize the conclusion."
+]
+
+batch_results = find_similar_chunks_batch(queries, db_config=db_config)
+
+for query, results in batch_results.items():
+    print(f"\nQuery: {query}")
+    for chunk, score in results:
+        print(f"  Score: {score:.4f} | Chunk: {chunk[:80]}...")
+
+
+
+
+
+
+✅ Optional Enhancements
+Would you like to:
+
+Add vector indexing for faster similarity search (e.g., using FAISS or pgvector)?
+Include metadata (e.g., source, timestamp) in the DB?
+Export results to a file or visualize them?
+Let me know how you'd like to evolve this pipeline!
+
+
+
+
+
+
+
+
+You said:
+
+Add vector indexing with pgvector and include metadata
+Copilot said:
+Copilot
+To support vector indexing with pgvector and include metadata in your PostgreSQL pipeline, here's how you can extend the previous code.
+
+✅ Prerequisites
+Install pgvector extension in PostgreSQL:
+
+
+
+CREATE EXTENSION IF NOT EXISTS vector;
+
+
+
+
+pip install langchain psycopg[binary] numpy
+Ensure your table uses vector type for embeddings.
+
+
+SQL
+CREATE TABLE IF NOT EXISTS text_chunks (
+    id SERIAL PRIMARY KEY,
+    chunk TEXT,
+    embedding VECTOR(768),  -- Adjust dimension to match your model
+    source TEXT,
+    timestamp TIMESTAMPTZ DEFAULT NOW()
+);
+🧠 Updated Python Functions
+1. Insert with Metadata and pgvector
+
+
+
+Python
+def process_text_and_store_pgvector(
+    text: str,
+    chunk_size: int,
+    chunk_overlap: int,
+    db_config: dict,
+    table_name: str = "text_chunks",
+    source: str = "default_source"
+):
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
+    from langchain.embeddings import OllamaEmbeddings
+
+    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    chunks = splitter.split_text(text)
+
+    embedder = OllamaEmbeddings(model="llama2")
+    embeddings = embedder.embed_documents(chunks)
+
+    with connect(**db_config, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS {table_name} (
+                    id SERIAL PRIMARY KEY,
+                    chunk TEXT,
+                    embedding VECTOR({len(embeddings[0])}),
+                    source TEXT,
+                    timestamp TIMESTAMPTZ DEFAULT NOW()
+                );
+            """)
+            for chunk, embedding in zip(chunks, embeddings):
+                cur.execute(
+                    f"INSERT INTO {table_name} (chunk, embedding, source) VALUES (%s, %s, %s);",
+                    (chunk, embedding, source)
+                )
+            conn.commit()
+
+Pokaż więcej wierszy
+2. Batch Query with pgvector Cosine Similarity
+
+
+
+Python
+def find_similar_chunks_pgvector_batch(
+    queries: list[str],
+    db_config: dict,
+    table_name: str = "text_chunks",
+    top_k: int = 5
+) -> dict:
+    from langchain.embeddings import OllamaEmbeddings
+    embedder = OllamaEmbeddings(model="llama2")
+    query_embeddings = [embedder.embed_query(q) for q in queries]
+
+    results = {}
+    with connect(**db_config, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            for query, q_emb in zip(queries, query_embeddings):
+                cur.execute(
+                    f"""
+                    SELECT chunk, source, timestamp,
+                           embedding <#> %s AS similarity
+                    FROM {table_name}
+                    ORDER BY similarity ASC
+                    LIMIT %s;
+                    """,
+                    (q_emb, top_k)
+                )
+                rows = cur.fetchall()
+                results[query] = [
+                    {
+                        "chunk": row["chunk"],
+                        "source": row["source"],
+                        "timestamp": row["timestamp"],
+                        "similarity": row["similarity"]
+                    }
+                    for row in rows
+                ]
+    return results
+
+Pokaż więcej wierszy
+🧪 Example Usage
+
+
+
+Python
+db_config = {
+    "host": "localhost",
+    "port": 5432,
+    "dbname": "your_db",
+    "user": "your_user",
+    "password": "your_password"
+}
+
+text = "Your long document here..."
+process_text_and_store_pgvector(text, 300, 50, db_config, source="report_2025")
+
+queries = ["main idea", "technical summary"]
+results = find_similar_chunks_pgvector_batch(queries, db_config)
+
+for query, chunks in results.items():
+    print(f"\nQuery: {query}")
+    for item in chunks:
+        print(f"  Score: {item['similarity']:.4f} | Source: {item['source']} | Chunk: {item['chunk'][:80]}...")
+
+Pokaż więcej wierszy
+Would you like help with:
+
+Creating a Dockerized setup for PostgreSQL + pgvector?
+Adding support for updating or deleting chunks?
+Exporting results to CSV or JSON?
+Let me know what you'd like to build next!
+
+
+
+
+
+
+
+
+You said:
+
+Add update/delete chunk support
+Copilot said:
+Copilot
+To support update and delete operations for chunks in your PostgreSQL table using pgvector, here’s how you can extend the pipeline.
+
+🧱 Table Reminder
+Ensure your table has a unique identifier (id) or a unique combination of fields (e.g., chunk, source) to target updates/deletes.
+
+🔧 Update Chunk Function
+
+
+
+Python
+def update_chunk(
+    chunk_id: int,
+    new_chunk: str,
+    db_config: dict,
+    table_name: str = "text_chunks"
+):
+    from langchain.embeddings import OllamaEmbeddings
+    embedder = OllamaEmbeddings(model="llama2")
+    new_embedding = embedder.embed_query(new_chunk)
+
+    with connect(**db_config, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                UPDATE {table_name}
+                SET chunk = %s,
+                    embedding = %s,
+                    timestamp = NOW()
+                WHERE id = %s;
+                """,
+                (new_chunk, new_embedding, chunk_id)
+            )
+            conn.commit()
+    print(f"Chunk with ID {chunk_id} updated.")
+
+Pokaż więcej wierszy
+🗑️ Delete Chunk Function
+
+
+
+Python
+def delete_chunk(
+    chunk_id: int,
+    db_config: dict,
+    table_name: str = "text_chunks"
+):
+    with connect(**db_config, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"DELETE FROM {table_name} WHERE id = %s;",
+                (chunk_id,)
+            )
+            conn.commit()
+    print(f"Chunk with ID {chunk_id} deleted.")
+🧪 Example Usage
+
+
+
+Python
+# Update chunk with ID 5
+update_chunk(
+    chunk_id=5,
+    new_chunk="Updated content for this chunk.",
+    db_config=db_config
+)
+
+# Delete chunk with ID 7
+delete_chunk(
+    chunk_id=7,
+    db_config=db_config
+)
+✅ Optional Enhancements
+Would you like to:
+
+Add search by content or source before updating/deleting?
+Add soft delete (e.g., mark as inactive)?
+Build a small CLI or web interface for managing chunks?
+Let me know how you'd like to extend this further!
+
+
+
+
+
+
+
+
+You said:
+
+Add search by content before update/delete
+Copilot said:
+Copilot
+To support searching by content before updating or deleting, we’ll add a function that lets you find chunks by a keyword or phrase, then optionally update or delete them based on their id.
+
+🔍 1. Search by Content
+
+
+
+Python
+def search_chunks_by_content(
+    keyword: str,
+    db_config: dict,
+    table_name: str = "text_chunks",
+    limit: int = 10
+) -> list[dict]:
+    """
+    Search for chunks containing a keyword (case-insensitive).
+    Returns a list of matching chunks with metadata.
+    """
+    with connect(**db_config, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT id, chunk, source, timestamp
+                FROM {table_name}
+                WHERE chunk ILIKE %s
+                LIMIT %s;
+                """,
+                (f"%{keyword}%", limit)
+            )
+            return cur.fetchall()
+
+Pokaż więcej wierszy
+✏️ 2. Update by Content Search
+
+
+
+Python
+def update_chunk_by_content(
+    keyword: str,
+    new_chunk: str,
+    db_config: dict,
+    table_name: str = "text_chunks"
+):
+    matches = search_chunks_by_content(keyword, db_config, table_name)
+    if not matches:
+        print("No matching chunks found.")
+        return
+
+    from langchain.embeddings import OllamaEmbeddings
+    embedder = OllamaEmbeddings(model="llama2")
+    new_embedding = embedder.embed_query(new_chunk)
+
+    with connect(**db_config, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            for match in matches:
+                cur.execute(
+                    f"""
+                    UPDATE {table_name}
+                    SET chunk = %s,
+                        embedding = %s,
+                        timestamp = NOW()
+                    WHERE id = %s;
+                    """,
+                    (new_chunk, new_embedding, match["id"])
+                )
+            conn.commit()
+    print(f"Updated {len(matches)} chunk(s) containing '{keyword}'.")
+
+Pokaż więcej wierszy
+🗑️ 3. Delete by Content Search
+
+
+
+Python
+def delete_chunk_by_content(
+    keyword: str,
+    db_config: dict,
+    table_name: str = "text_chunks"
+):
+    matches = search_chunks_by_content(keyword, db_config, table_name)
+    if not matches:
+        print("No matching chunks found.")
+        return
+
+    with connect(**db_config, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            for match in matches:
+                cur.execute(
+                    f"DELETE FROM {table_name} WHERE id = %s;",
+                    (match["id"],)
+                )
+            conn.commit()
+    print(f"Deleted {len(matches)} chunk(s) containing '{keyword}'.")
+
+Pokaż więcej wierszy
+🧪 Example Usage
+
+
+
+Python
+# Search for chunks containing "summary"
+matches = search_chunks_by_content("summary", db_config)
+for m in matches:
+    print(f"ID: {m['id']} | Source: {m['source']} | Chunk: {m['chunk'][:80]}...")
+
+# Update all chunks containing "summary"
+update_chunk_by_content("summary", "This is the new updated content.", db_config)
+
+# Delete all chunks containing "obsolete"
+delete_chunk_by_content("obsolete", db_config)
+Would you like to:
+
+Add confirmation prompts before update/delete?
+Log changes to an audit table?
+Build a small admin dashboard for managing chunks?
+Let me know how you'd like to expand this!

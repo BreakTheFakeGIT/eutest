@@ -22,7 +22,7 @@ def process_text_and_store(
     print(chunks)
 
     # 2. Create embeddings using local Ollama
-    embedder = OllamaEmbeddings(model="llama2")  # Change model name if needed
+    embedder = OllamaEmbeddings(model="llama2") # Change model name if needed
     embeddings = embedder.embed_documents(chunks)
     print(len(embeddings))
 
@@ -51,6 +51,8 @@ def process_text_and_store(
 
 # # === Test Setup ===
 if __name__ == "__main__":
+
+
     sample_text = """
     LangChain is a framework for developing applications powered by language models.
     It enables chaining together components like LLMs, prompts, memory, and agents.

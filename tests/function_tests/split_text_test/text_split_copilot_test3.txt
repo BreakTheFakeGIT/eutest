@@ -1,0 +1,441 @@
+I use Langchain framework. 
+I am gonna create experiments with parameters. 
+I have got html text. 
+I want to split text into chunks using diffrent tags. 
+My tags are 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'b', 'strong'
+I want to exclude some words, phrases and regex.
+I want to to drop first chunk where is if statament 
+I want to add local Ollama model to create embeddings 
+I want to calculate cosinsus corelation.
+I want to use metadata. I use pgvector
+I run local Ollama model to exctract information with diffrent prompts for whole text
+For each chunk I run local Ollama model to exctract information with diffrent prompts. 
+For each chunck I am gonna usuing agent.
+I want to collect that information. 
+I use psycopg 3 not alchemy.
+In the next step I want to insert into postgres data base. I use psycopg 3 not alchemy.
+Finally I want to select data from database
+Write a function code in Python.
+
+
+import re
+from bs4 import BeautifulSoup
+from langchain.embeddings import OllamaEmbeddings
+from langchain.llms import Ollama
+from langchain.vectorstores.pgvector import PGVector
+from langchain.docstore.document import Document
+from langchain.agents import initialize_agent, Tool
+from langchain.agents.agent_types import AgentType
+import psycopg
+from typing import List
+
+
+# Configuration
+EXCLUDED_PATTERNS = [r'\bexample\b', r'\btest\b', r'\d{4}-\d{2}-\d{2}']  # Add your regex/phrases
+CHUNK_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'b', 'strong']
+PGVECTOR_CONFIG = {
+    "connection_string": "postgresql://user:password@localhost:5432/dbname",
+    "collection_name": "html_chunks",
+    "embedding_function": OllamaEmbeddings(model="llama3")
+}
+BATCH_SIZE = 10
+
+
+
+def process_html_and_store(html_text: str):
+    soup = BeautifulSoup(html_text, 'html.parser')
+    chunks = []
+
+    # Extract chunks
+    for tag in CHUNK_TAGS:
+        for element in soup.find_all(tag):
+            text = element.get_text(strip=True)
+            if any(re.search(pattern, text, re.IGNORECASE) for pattern in EXCLUDED_PATTERNS):
+                continue
+            chunks.append(text)
+
+    # Drop first chunk with 'if' statement
+    chunks = [chunk for chunk in chunks if not chunk.strip().lower().startswith('if')]
+
+    # Create LangChain documents with metadata
+    documents = [
+        Document(page_content=chunk, metadata={"tag": tag})
+        for chunk, tag in zip(chunks, [tag for tag in CHUNK_TAGS for _ in soup.find_all(tag)])
+    ]
+
+    # Embedding and storing in PGVector
+    vectorstore = PGVector(**PGVECTOR_CONFIG)
+    vectorstore.add_documents(documents)
+
+    # Cosine similarity example (querying)
+    query = "Find relevant chunks about security"
+    results = vectorstore.similarity_search(query, k=5)
+
+    # Run Ollama model on full text
+    llm = Ollama(model="llama3")
+    full_text_info = llm.invoke(f"Extract key insights from the following HTML:\n{html_text}")
+
+    # Run agent on each chunk
+    tools = [Tool(name="OllamaExtractor", func=llm.invoke, description="Extract info from chunk")]
+    agent = initialize_agent(tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION)
+
+    chunk_infos = []
+    for doc in documents:
+        response = agent.run(f"Extract insights from: {doc.page_content}")
+        chunk_infos.append({
+            "content": doc.page_content,
+            "metadata": doc.metadata,
+            "insights": response
+        })
+
+    # Insert into PostgreSQL using psycopg3
+    with psycopg.connect(PGVECTOR_CONFIG["connection_string"]) as conn:
+        with conn.cursor() as cur:
+            for info in chunk_infos:
+                cur.execute(
+                    "INSERT INTO html_chunks (content, metadata, insights) VALUES (%s, %s, %s)",
+                    (info["content"], str(info["metadata"]), info["insights"])
+                )
+            conn.commit()
+
+    # Select data
+    with psycopg.connect(PGVECTOR_CONFIG["connection_string"]) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT content, insights FROM html_chunks LIMIT 10")
+            rows = cur.fetchall()
+            for row in rows:
+                print("Content:", row[0])
+                print("Insights:", row[1])
+                print("------")
+
+
+def chunk_html(html_text: str) -> List[Document]:
+    soup = BeautifulSoup(html_text, 'html.parser')
+    chunks = []
+
+    for tag in CHUNK_TAGS:
+        for element in soup.find_all(tag):
+            text = element.get_text(strip=True)
+            if any(re.search(pattern, text, re.IGNORECASE) for pattern in EXCLUDED_PATTERNS):
+                continue
+            chunks.append((text, tag))
+
+    # Drop first chunk with 'if' statement
+    chunks = [chunk for chunk in chunks if not chunk[0].strip().lower().startswith('if')]
+
+    return [Document(page_content=text, metadata={"tag": tag}) for text, tag in chunks]
+
+def batch_process_documents(documents: List[Document]):
+    llm = Ollama(model="llama3")
+    vectorstore = PGVector(**PGVECTOR_CONFIG)
+    tools = [Tool(name="OllamaExtractor", func=llm.invoke, description="Extract info from chunk")]
+    agent = initialize_agent(tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION)
+
+    # Batch embedding and storing
+    for i in range(0, len(documents), BATCH_SIZE):
+        batch = documents[i:i + BATCH_SIZE]
+        vectorstore.add_documents(batch)
+
+    # Batch agent processing
+    chunk_infos = []
+    for i in range(0, len(documents), BATCH_SIZE):
+        batch = documents[i:i + BATCH_SIZE]
+        for doc in batch:
+            response = agent.run(f"Extract insights from: {doc.page_content}")
+            chunk_infos.append({
+                "content": doc.page_content,
+                "metadata": doc.metadata,
+                "insights": response
+            })
+
+    # Batch insert into PostgreSQL
+    with psycopg.connect(PGVECTOR_CONFIG["connection_string"]) as conn:
+        with conn.cursor() as cur:
+            for i in range(0, len(chunk_infos), BATCH_SIZE):
+                batch = chunk_infos[i:i + BATCH_SIZE]
+                cur.executemany(
+                    "INSERT INTO html_chunks (content, metadata, insights) VALUES (%s, %s, %s)",
+                    [(info["content"], str(info["metadata"]), info["insights"]) for info in batch]
+                )
+            conn.commit()
+
+
+
+
+def process_batch_html_and_store(html_text: str):
+    documents = chunk_html(html_text)
+
+    # Full text processing
+    llm = Ollama(model="llama3")
+    full_text_info = llm.invoke(f"Extract key insights from the following HTML:\n{html_text}")
+    print("Full Text Insights:", full_text_info)
+
+    # Batch processing
+    batch_process_documents(documents)
+
+    # Select and print results
+    with psycopg.connect(PGVECTOR_CONFIG["connection_string"]) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT content, insights FROM html_chunks LIMIT 10")
+            rows = cur.fetchall()
+            for row in rows:
+                print("Content:", row[0])
+                print("Insights:", row[1])
+
+
+
+
+
+
+
+
+
+
+
+
+
+import re
+import asyncio
+from bs4 import BeautifulSoup
+from langchain.embeddings import OllamaEmbeddings
+from langchain.llms import Ollama
+from langchain.vectorstores.pgvector import PGVector
+from langchain.docstore.document import Document
+from langchain.agents import initialize_agent, Tool
+from langchain.agents.agent_types import AgentType
+import psycopg
+from typing import List
+
+# Configuration
+EXCLUDED_PATTERNS = [r'\bexample\b', r'\btest\b', r'\d{4}-\d{2}-\d{2}']
+CHUNK_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'b', 'strong']
+BATCH_SIZE = 10
+
+PGVECTOR_CONFIG = {
+    "connection_string": "postgresql://user:password@localhost:5432/dbname",
+    "collection_name": "html_chunks",
+    "embedding_function": OllamaEmbeddings(model="llama3")
+}
+
+def chunk_html(html_text: str) -> List[Document]:
+    soup = BeautifulSoup(html_text, 'html.parser')
+    chunks = []
+
+    for tag in CHUNK_TAGS:
+        for element in soup.find_all(tag):
+            text = element.get_text(strip=True)
+            if any(re.search(pattern, text, re.IGNORECASE) for pattern in EXCLUDED_PATTERNS):
+                continue
+            chunks.append((text, tag))
+
+    # Drop first chunk with 'if' statement
+    chunks = [chunk for chunk in chunks if not chunk[0].strip().lower().startswith('if')]
+
+    return [Document(page_content=text, metadata={"tag": tag}) for text, tag in chunks]
+
+async def extract_insight_async(agent, doc: Document):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, agent.run, f"Extract insights from: {doc.page_content}")
+
+async def batch_process_documents_async(documents: List[Document]):
+    llm = Ollama(model="llama3")
+    vectorstore = PGVector(**PGVECTOR_CONFIG)
+    tools = [Tool(name="OllamaExtractor", func=llm.invoke, description="Extract info from chunk")]
+    agent = initialize_agent(tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION)
+
+    # Batch embedding and storing
+    for i in range(0, len(documents), BATCH_SIZE):
+        batch = documents[i:i + BATCH_SIZE]
+        vectorstore.add_documents(batch)
+
+    # Async agent processing
+    chunk_infos = []
+    for i in range(0, len(documents), BATCH_SIZE):
+        batch = documents[i:i + BATCH_SIZE]
+        tasks = [extract_insight_async(agent, doc) for doc in batch]
+        responses = await asyncio.gather(*tasks)
+
+        for doc, response in zip(batch, responses):
+            chunk_infos.append({
+                "content": doc.page_content,
+                "metadata": doc.metadata,
+                "insights": response
+            })
+
+    # Batch insert into PostgreSQL
+    with psycopg.connect(PGVECTOR_CONFIG["connection_string"]) as conn:
+        with conn.cursor() as cur:
+            for i in range(0, len(chunk_infos), BATCH_SIZE):
+                batch = chunk_infos[i:i + BATCH_SIZE]
+                cur.executemany(
+                    "INSERT INTO html_chunks (content, metadata, insights) VALUES (%s, %s, %s)",
+                    [(info["content"], str(info["metadata"]), info["insights"]) for info in batch]
+                )
+            conn.commit()
+
+async def process_html_and_store_async(html_text: str):
+    documents = chunk_html(html_text)
+
+    # Full text processing
+    llm = Ollama(model="llama3")
+    loop = asyncio.get_event_loop()
+    full_text_info = await loop.run_in_executor(None, llm.invoke, f"Extract key insights from the following HTML:\n{html_text}")
+    print("Full Text Insights:", full_text_info)
+
+    # Async batch processing
+    await batch_process_documents_async(documents)
+
+    # Select and print results
+    with psycopg.connect(PGVECTOR_CONFIG["connection_string"]) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT content, insights FROM html_chunks LIMIT 10")
+            rows = cur.fetchall()
+            for row in rows:
+                print("Content:", row[0])
+                print("Insights:", row[1])
+                print("------")
+
+# To run the async function
+# asyncio.run(process_html_and_store_async(html_text))
+
+
+Python
+import asyncio
+html_text = "<html>...</html>"  # Your HTML input
+asyncio.run(process_html_and_store_async(html_text))
+
+
+
+
+PROMPT_TEMPLATES = [
+    "Summarize the following content:\n{content}",
+    "Extract key entities from the following content:\n{content}",
+    "Classify the topic of the following content:\n{content}"
+]
+🔄 Modify extract_insight_async to handle multiple prompts
+
+
+
+Python
+async def extract_insight_async(agent, doc: Document):
+    loop = asyncio.get_event_loop()
+    tasks = [
+        loop.run_in_executor(None, agent.run, prompt.format(content=doc.page_content))
+        for prompt in PROMPT_TEMPLATES
+    ]
+    return await asyncio.gather(*tasks)
+🔄 Update batch_process_documents_async to store multiple insights
+
+
+
+Python
+async def batch_process_documents_async(documents: List[Document]):
+    llm = Ollama(model="llama3")
+    vectorstore = PGVector(**PGVECTOR_CONFIG)
+    tools = [Tool(name="OllamaExtractor", func=llm.invoke, description="Extract info from chunk")]
+    agent = initialize_agent(tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION)
+
+    # Batch embedding and storing
+    for i in range(0, len(documents), BATCH_SIZE):
+        batch = documents[i:i + BATCH_SIZE]
+        vectorstore.add_documents(batch)
+
+    # Async agent processing
+    chunk_infos = []
+    for i in range(0, len(documents), BATCH_SIZE):
+        batch = documents[i:i + BATCH_SIZE]
+        tasks = [extract_insight_async(agent, doc) for doc in batch]
+        responses = await asyncio.gather(*tasks)
+
+        for doc, insights in zip(batch, responses):
+            chunk_infos.append({
+                "content": doc.page_content,
+                "metadata": doc.metadata,
+                "insights": insights  # List of responses per prompt
+            })
+
+    # Batch insert into PostgreSQL
+    with psycopg.connect(PGVECTOR_CONFIG["connection_string"]) as conn:
+        with conn.cursor() as cur:
+            for i in range(0, len(chunk_infos), BATCH_SIZE):
+                batch = chunk_infos[i:i + BATCH_SIZE]
+                cur.executemany(
+                    "INSERT INTO html_chunks (content, metadata, insights) VALUES (%s, %s, %s)",
+                    [(info["content"], str(info["metadata"]), str(info["insights"])) for info in batch]
+                )
+            conn.commit()
+
+
+
+
+Python
+[
+  "Summary: ...",
+  "Entities: ...",
+  "Topic: ..."
+]
+
+
+1. html_chunks
+Stores the base chunk and metadata.
+
+
+SQL
+CREATE TABLE html_chunks (
+    id SERIAL PRIMARY KEY,
+    content TEXT NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+2. chunk_prompts
+Stores each prompt and its response, linked to html_chunks.
+
+
+
+
+SQL
+CREATE TABLE chunk_prompts (
+    id SERIAL PRIMARY KEY,
+    chunk_id INTEGER REFERENCES html_chunks(id) ON DELETE CASCADE,
+    prompt TEXT NOT NULL,
+    response TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+🔄 Example Insert Flow
+After processing a chunk with multiple prompts:
+
+Insert the chunk into html_chunks.
+Get the id of the inserted chunk.
+Insert each (prompt, response) pair into chunk_prompts with the chunk_id.
+🧪 Example Query
+To retrieve all insights for a chunk:
+
+
+
+
+SQL
+SELECT c.content, p.prompt, p.response
+FROM html_chunks c
+JOIN chunk_prompts p ON c.id = p.chunk_id
+WHERE c.id = 42;
+Would you like me to:
+
+Generate Python code to insert into this schema using psycopg3?
+Add support for embedding vectors in this schema using pgvector?
+Help with migrations or schema evolution?
+Let me know how you'd like to proceed!
+
+
+
+
+
+
+
+
+
+Generate Python insert code for schema
+
+Add pgvector embedding support
+
+Help with schema migrations

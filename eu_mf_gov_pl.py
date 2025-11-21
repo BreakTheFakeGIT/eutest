@@ -53,17 +53,17 @@ RANGE_ID = range_id_infromacji(logger, TBL_INTERP, POSTGRES_DSN)
 BASE_URL = 'https://eureka.mf.gov.pl/api/public/v1/informacje'
 
 # The number of JSON records to store in a single output file.
-RECORDS_PER_FILE = 10
+RECORDS_PER_FILE = 100
 
 # The delay in seconds between each download request.
-REQUEST_DELAY_SECONDS = 0.5
+REQUEST_DELAY_SECONDS = 0.2
 
 # The directory where the output files will be saved.
-OUTPUT_DIR = "/dane/eutest/data/json_uzup/"
-#OUTPUT_DIR = "/dane/interp/json_uzup/"
+#OUTPUT_DIR = "/dane/eutest/data/complete_json/"
+OUTPUT_DIR = os.environ.get("COMPLETE_JSON_FOLDER")
 
 # The template for the output filenames.
-FILENAME_TEMPLATE = "{}_{}_{}.jsonl"
+FILENAME_TEMPLATE = "consolidate_json_{}_{}.json"
 
 
 async def fetch_data(session, url, retries=3, delay=5):
@@ -144,7 +144,7 @@ async def main():
 
                 # When the collected data reaches the batch size, save it to a file.
                 if len(collected_data) >= RECORDS_PER_FILE:
-                    file_path = os.path.join(OUTPUT_DIR, FILENAME_TEMPLATE.format(item_id,file_counter,set_datetime_local()))
+                    file_path = os.path.join(OUTPUT_DIR, FILENAME_TEMPLATE.format(item_id,set_datetime_local()))
                     await save_to_file(collected_data, file_path)
 
                     # Reset the list for the next batch and increment the file counter.
@@ -157,13 +157,13 @@ async def main():
 
         # After the loop finishes, save any remaining data that hasn't been written yet.
         if collected_data:
-            file_path = os.path.join(OUTPUT_DIR, FILENAME_TEMPLATE.format(item_id,file_counter))
+            file_path = os.path.join(OUTPUT_DIR, FILENAME_TEMPLATE.format(item_id,set_datetime_local()))
             await save_to_file(collected_data, file_path)
 
     logger.info("\nDownload process has finished.")
 
 if __name__ == "__main__":
-    # This block runs the main asynchronous function.
+    #This block runs the main asynchronous function.
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

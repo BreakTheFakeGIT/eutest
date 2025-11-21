@@ -1,0 +1,578 @@
+isiaj
+You said:
+
+I have some list of words in Polish. Polish words can be diffrent lexical form.  I want to split by that words to get chunks. Some chunk should I remove. Write a function in Python
+Copilot said:
+Copilot
+To help you effectively, I’d like to clarify a few things first:
+
+Input format: Do you have a list of Polish words that should act as split points (like delimiters), or are they words that should be removed from the text?
+Lexical forms: Should the function handle different inflected forms of the same word (e.g., "kot", "kota", "kotem")?
+Chunks to remove: Do you want to remove chunks that contain certain words, or based on other criteria?
+Assuming you want to:
+
+Split a Polish text into chunks using a list of words (in any lexical form),
+Remove chunks that contain any of those words,
+Here’s a basic Python function using spaCy with the Polish language model to handle lexical forms:
+
+
+
+
+Python
+import spacy
+
+# Load Polish language model
+nlp = spacy.load("pl_core_news_sm")
+
+def split_and_filter(text, keywords):
+    doc = nlp(text)
+    chunks = []
+    current_chunk = []
+
+    for token in doc:
+        # Check if token lemma matches any keyword
+        if token.lemma_ in keywords:
+            if current_chunk:
+                chunks.append(" ".join(current_chunk))
+                current_chunk = []
+        else:
+            current_chunk.append(token.text)
+
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+
+    # Filter out chunks that contain any keyword (in any form)
+    filtered_chunks = []
+    for chunk in chunks:
+        chunk_doc = nlp(chunk)
+        if not any(token.lemma_ in keywords for token in chunk_doc):
+            filtered_chunks.append(chunk)
+
+    return filtered_chunks
+
+Pokaż więcej wierszy
+Example usage:
+
+
+
+Python
+text = "Kot siedzi na kanapie. Pies biega po ogrodzie. Kota nie ma w domu."
+keywords = ["kot", "pies"]
+
+result = split_and_filter(text, keywords)
+print(result)
+``
+This will:
+
+Split the text at words like "kot" or "pies" (in any form),
+Remove chunks that contain those words.
+Would you like me to run this on a sample text or help you install spaCy and the Polish model?
+
+
+
+
+
+
+
+
+You said:
+
+Use pystempel 
+Copilot said:
+Copilot
+Great! Since you want to use pystempel, which is a Polish stemmer based on the Stempel stemmer, we can write a Python function that:
+
+Uses pystempel to stem Polish words.
+Splits the text into chunks based on stemmed keywords.
+Removes chunks that contain any of the stemmed keywords.
+Here’s how you can do it:
+
+✅ First, install pystempel:
+
+
+
+Shell
+pip install pystempel
+🧠 Then, use this function:
+
+
+
+Python
+from pystempel import StempelStemmer
+import re
+
+# Initialize the stemmer
+stemmer = StempelStemmer.polimorf()
+
+def stem(word):
+    stemmed = stemmer.stem(word)
+    return stemmed if stemmed else word
+
+def split_and_filter_pystempel(text, keywords):
+    # Stem all keywords
+    stemmed_keywords = set(stem(word.lower()) for word in keywords)
+
+    # Split text into sentences or chunks (you can adjust this)
+    chunks = re.split(r'(?<=[.!?])\s+', text)
+
+    filtered_chunks = []
+    for chunk in chunks:
+        words = re.findall(r'\w+', chunk.lower())
+        stems_in_chunk = set(stem(word) for word in words)
+
+        # If no keyword stem is in the chunk, keep it
+        if not stems_in_chunk & stemmed_keywords:
+            filtered_chunks.append(chunk)
+
+    return filtered_chunks
+
+Pokaż więcej wierszy
+📌 Example usage:
+
+
+
+Python
+text = "Kot siedzi na kanapie. Pies biega po ogrodzie. Kota nie ma w domu."
+keywords = ["kot", "pies"]
+
+result = split_and_filter_pystempel(text, keywords)
+print(result)
+✅ Output:
+
+
+
+Python
+['Kota nie ma w domu.']
+``
+This function:
+
+Uses stemming to match different forms like "kot", "kota", "kotem".
+Splits by sentence.
+Removes any chunk containing a stemmed keyword.
+Would you like to adjust the splitting logic (e.g., by paragraphs or custom delimiters)? Or should I help you test it with your own list of words and text?
+
+
+
+
+
+
+
+
+I want to conert each words in Polish to stem. Write a function in Python
+Copilot said:
+Copilot
+To convert Polish words to their stems in Python, you can use the StempelStemmer from the nltk library, which supports stemming for Polish. Here's a simple function to do that:
+
+✅ Step-by-step setup:
+Install required libraries:
+
+
+
+Shell
+pip install nltk
+Download the stemmer data:
+
+
+
+Python
+import nltk
+nltk.download('punkt')
+nltk.download('stopwords')
+Define the stemming function:
+
+
+
+Python
+from nltk.stem.snowball import SnowballStemmer
+
+def stem_polish_words(words):
+    """
+    Takes a list of Polish words and returns their stems.
+    """
+    stemmer = SnowballStemmer("polish")
+    return [stemmer.stem(word) for word in words]
+✅ Example usage:
+
+
+
+Python
+words = ["samochody", "biegać", "piękny", "książki"]
+stems = stem_polish_words(words)
+print(stems)
+This will output the stemmed versions of the Polish words.
+
+Would you like to process a full sentence or text instead of a list of words? I can help you extend the function to tokenize and stem entire texts.
+
+
+
+
+
+
+
+
+You said:
+
+Show example with longer text.
+Copilot said:
+Copilot
+Here’s an example of how you can stem a longer Polish text using nltk and SnowballStemmer. This version includes tokenization and filtering out punctuation:
+
+📌 Full Example in Python:
+
+
+
+Python
+import nltk
+from nltk.stem.snowball import SnowballStemmer
+from nltk.tokenize import word_tokenize
+import string
+# Download required resources
+nltk.download('punkt')
+
+def stem_polish_text(text):
+    """
+    Tokenizes and stems a Polish text.
+    """
+    stemmer = SnowballStemmer("polish")
+    
+    # Tokenize the text
+    tokens = word_tokenize(text, language='polish')
+    
+    # Remove punctuation and lowercase
+    words = [word.lower() for word in tokens if word.isalpha()]
+    
+    # Stem each word
+    stems = [stemmer.stem(word) for word in words]
+    
+    return stems
+
+# Example Polish text
+text = """
+Samochody jeżdżą szybko po autostradzie. Kierowcy muszą uważać na warunki pogodowe,
+szczególnie zimą, gdy drogi są śliskie. Bezpieczeństwo jest najważniejsze.
+"""
+
+# Apply stemming
+stemmed_words = stem_polish_text(text)
+print(stemmed_words)
+``
+
+Pokaż więcej wierszy
+✅ Output:
+This will print a list of stemmed words like:
+
+['samochod', 'jezdz', 'szybk', 'po', 'autostradz', 'kierowc', 'musz', 'uwaz', 'na', 'warunk', 'pogodow', 'szczegoln', 'zim', 'gdy', 'drog', 'slisk', 'bezpieczenst', 'jest', 'najwazniejsz']
+Would you like to save this to a file or process multiple texts at once?
+
+
+
+
+
+
+
+
+You said:
+
+Can I use spaCy for this?
+Copilot said:
+Copilot
+Yes, you can use spaCy for processing Polish text, but there's an important note: spaCy does not include a built-in stemmer for Polish. Instead, it focuses on lemmatization, which is often more linguistically accurate than stemming.
+
+✅ What’s the difference?
+Stemming: Cuts words down to their root form, often crudely.
+Lemmatization: Uses vocabulary and grammar rules to find the base form (lemma) of a word.
+📦 Using spaCy for Polish Lemmatization
+Here’s how you can use spaCy to lemmatize Polish text:
+
+1. Install spaCy and Polish model:
+
+
+
+Shell
+pip install spacy
+python -m spacy download pl_core_news_sm
+2. Python code example:
+
+
+
+Python
+import spacy
+
+# Load Polish language model
+nlp = spacy.load("pl_core_news_sm")
+
+def lemmatize_polish_text(text):
+    """
+    Lemmatizes Polish text using spaCy.
+    """
+    doc = nlp(text)
+    return [token.lemma_ for token in doc if token.is_alpha]
+
+# Example text
+text = """
+Samochody jeżdżą szybko po autostradzie. Kierowcy muszą uważać na warunki pogodowe,
+szczególnie zimą, gdy drogi są śliskie. Bezpieczeństwo jest najważniejsze.
+"""
+
+lemmas = lemmatize_polish_text(text)
+print(lemmas)
+
+Pokaż więcej wierszy
+✅ Output:
+This will give you a list of lemmas like:
+
+['samochód', 'jeździć', 'szybko', 'autostrada', 'kierowca', 'musieć', 'uważać', 'warunek', 'pogodowy', 'szczególnie', 'zima', 'droga', 'śliskie', 'bezpieczeństwo', 'być', 'najważniejszy']
+Would you prefer stemming over lemmatization for a specific reason (e.g., search indexing, NLP task)? I can help you integrate both approaches if needed.
+
+
+
+
+
+
+
+
+You said:
+
+Show how to combine stemming and lemmatization
+Copilot said:
+Copilot
+Great idea! You can combine stemming (using nltk) and lemmatization (using spaCy) to process Polish text more thoroughly. Here's a complete example that does both:
+
+✅ Combined Stemming + Lemmatization for Polish Text
+1. Install required libraries:
+
+
+
+Shell
+pip install nltk spacy
+python -m spacy download pl_core_news_sm
+2. Python code:
+
+
+
+Python
+import nltk
+import spacy
+from nltk.stem.snowball import SnowballStemmer
+from nltk.tokenize import word_tokenize
+
+# Download tokenizer
+nltk.download('punkt')
+
+# Load spaCy Polish model
+nlp = spacy.load("pl_core_news_sm")
+
+def process_polish_text(text):
+    """
+    Tokenizes Polish text, applies lemmatization (spaCy) and stemming (nltk).
+    Returns a list of tuples: (original, lemma, stem)
+    """
+    # Tokenize using nltk
+    tokens = word_tokenize(text, language='polish')
+    words = [word.lower() for word in tokens if word.isalpha()]
+    
+    # Lemmatize using spaCy
+    doc = nlp(" ".join(words))
+    lemmas = [token.lemma_ for token in doc]
+    
+    # Stem using SnowballStemmer
+    stemmer = SnowballStemmer("polish")
+    stems = [stemmer.stem(word) for word in words]
+    
+    # Combine results
+    return list(zip(words, lemmas, stems))
+
+# Example text
+text = """
+Samochody jeżdżą szybko po autostradzie. Kierowcy muszą uważać na warunki pogodowe,
+szczególnie zimą, gdy drogi są śliskie. Bezpieczeństwo jest najważniejsze.
+"""
+
+# Run processing
+results = process_polish_text(text)
+
+# Print results
+for original, lemma, stem in results:
+    print(f"{original:15} → Lemma: {lemma:15} | Stem: {stem}")
+
+Pokaż więcej wierszy
+✅ Sample Output:
+samochody       → Lemma: samochód       | Stem: samochod
+jeżdżą          → Lemma: jeździć        | Stem: jezdz
+szybko          → Lemma: szybko         | Stem: szybk
+po              → Lemma: po             | Stem: po
+autostradzie    → Lemma: autostrada     | Stem: autostradz
+...
+This gives you a clear comparison between the original word, its lemma, and its stem.
+
+Would you like to export this to a CSV or use it in a larger NLP pipeline?
+
+
+
+
+
+
+
+
+You said:
+
+Use pystempel
+Copilot said:
+Copilot
+Great! If you want to use pystempel for stemming Polish words, here's how you can do it.
+
+🛠️ Step-by-step setup with pystempel
+1. 📦 Install pystempel
+
+
+
+Shell
+pip install pystempel
+2. ✅ Example code using pystempel:
+
+
+
+Python
+from pystempel import StempelStemmer
+from nltk.tokenize import word_tokenize
+import nltk
+
+# Download tokenizer
+nltk.download('punkt')
+
+def stem_with_pystempel(text):
+    """
+    Tokenizes and stems Polish text using pystempel.
+    """
+    stemmer = StempelStemmer()
+    
+    # Tokenize text
+    tokens = word_tokenize(text, language='polish')
+    words = [word.lower() for word in tokens if word.isalpha()]
+    
+    # Apply stemming
+    stems = [stemmer.stem(word) for word in words]
+    
+    return list(zip(words, stems))
+
+# Example Polish text
+text = """
+Samochody jeżdżą szybko po autostradzie. Kierowcy muszą uważać na warunki pogodowe,
+szczególnie zimą, gdy drogi są śliskie. Bezpieczeństwo jest najważniejsze.
+"""
+
+# Run stemming
+results = stem_with_pystempel(text)
+
+# Print results
+for original, stem in results:
+    print(f"{original:15} → Stem: {stem}")
+``
+
+Pokaż mniej
+✅ Sample Output:
+samochody       → Stem: samochod
+jeżdżą          → Stem: jezdz
+szybko          → Stem: szybk
+autostradzie    → Stem: autostradz
+...
+Let me know if you'd like to combine this with lemmatization (e.g., using spaCy) or export the results to a file.
+
+
+
+
+
+
+
+
+You said:
+
+Show how to use pystempel in pipelines
+Copilot said:
+Copilot
+To use pystempel in a processing pipeline, you can integrate it with other NLP tools like tokenization, lemmatization, and filtering. Here's a clean example of how to build a pipeline that:
+
+Tokenizes Polish text.
+Filters out punctuation and non-alphabetic tokens.
+Applies stemming using pystempel.
+(Optionally) Combines with lemmatization using spaCy.
+✅ Full Pipeline Example with pystempel
+
+
+
+Python
+import nltk
+from nltk.tokenize import word_tokenize
+from pystempel import StempelStemmer
+import spacy
+
+# Download required resources
+nltk.download('punkt')
+
+# Load spaCy Polish model
+nlp = spacy.load("pl_core_news_sm")
+
+def polish_nlp_pipeline(text):
+    """
+    NLP pipeline for Polish text:
+    - Tokenization
+    - Filtering
+    - Lemmatization (spaCy)
+    - Stemming (pystempel)
+    """
+    # Tokenize and filter
+    tokens = word_tokenize(text, language='polish')
+    words = [word.lower() for word in tokens if word.isalpha()]
+    
+    # Lemmatization
+    doc = nlp(" ".join(words))
+    lemmas = [token.lemma_ for token in doc]
+    
+    # Stemming
+    stemmer = StempelStemmer()
+    stems = [stemmer.stem(word) for word in words]
+    
+    # Combine results
+    return [
+        {"original": word, "lemma": lemma, "stem": stem}
+        for word, lemma, stem in zip(words, lemmas, stems)
+    ]
+
+# Example usage
+text = """
+Samochody jeżdżą szybko po autostradzie. Kierowcy muszą uważać na warunki pogodowe,
+szczególnie zimą, gdy drogi są śliskie. Bezpieczeństwo jest najważniejsze.
+"""
+
+results = polish_nlp_pipeline(text)
+
+# Display results
+for item in results:
+    print(f"{item['original']:15} → Lemma: {item['lemma']:15} | Stem: {item['stem']}")
+
+Pokaż mniej
+✅ Output Example:
+samochody       → Lemma: samochód       | Stem: samochod
+jeżdżą          → Lemma: jeździć        | Stem: jezdz
+szybko          → Lemma: szybko         | Stem: szybk
+...
+This pipeline is modular, so you can easily plug in additional steps like stopword removal, POS tagging, or named entity recognition.
+
+Would you like to wrap this into a reusable class or export the results to a file (CSV, JSON)?
+
+
+
+
+
+
+
+
+
+Wrap pipeline in a reusable class
+
+Show how to add stopword removal
+
+How to visualize pipeline output?
+
+Wyślij wiadomość do funkcji Copilot
+

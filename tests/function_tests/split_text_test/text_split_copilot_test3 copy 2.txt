@@ -1,0 +1,496 @@
+Dzisiaj
+You said:
+
+I use Langchain framework. 
+I am gonna create experiments with parameters. 
+I have got text. 
+I split text into chunks using diffrent chunk size and overlap
+I exclude some words, phrases and regex.
+I drop first chunk where is if statament 
+I add local Ollama model to create embeddings 
+I calculate cosinsus corelation.
+I use metadata. I use pgvector
+I run local Ollama model to exctract information with diffrent prompts for whole text.
+For each chunk I run local Ollama model to exctract information with diffrent prompts. 
+For each chunck I am gonna using agent.
+I want to collect that information. 
+I use psycopg 3 and asyncio not alchemy.
+I insert into postgres database using batch.
+Finally I want to select data from database
+Write a function code in Python
+Copilot said:
+Copilot
+Thanks for the detailed description! Based on your setup using LangChain, local Ollama models, chunking, metadata, embeddings, agents, and PostgreSQL with psycopg3 and asyncio, here's a high-level Python function that orchestrates the entire pipeline.
+
+This function assumes:
+
+You have a local Ollama model running for both embeddings and inference.
+You use LangChain's Document, TextSplitter, Embedding, and AgentExecutor.
+You use pgvector for storing embeddings.
+You batch insert into PostgreSQL using psycopg3 with async support.
+✅ Python Function: run_experiment_pipeline
+
+
+
+Python
+import asyncio
+import re
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.schema import Document
+from langchain.embeddings import OllamaEmbeddings
+from langchain.agents import AgentExecutor
+from psycopg import AsyncConnection
+from psycopg.rows import dict_row
+from typing import List, Dict
+
+# Configuration
+EXCLUDED_WORDS = {"TODO", "fixme"}
+EXCLUDED_REGEX = [r"\bDEBUG\b", r"\btemp\b"]
+CHUNK_SIZES = [256, 512]
+OVERLAPS = [20, 50]
+PROMPTS = ["Summarize", "Extract key facts", "List entities"]
+
+# Connect to PostgreSQL
+async def get_pg_connection():
+    return await AsyncConnection.connect(
+        "postgresql://user:password@localhost/dbname",
+        row_factory=dict_row
+    )
+
+# Clean text
+def clean_text(text: str) -> str:
+    for word in EXCLUDED_WORDS:
+        text = text.replace(word, "")
+    for pattern in EXCLUDED_REGEX:
+        text = re.sub(pattern, "", text)
+    return text
+
+# Drop first chunk with 'if' statement
+def drop_first_if_chunk(chunks: List[Document]) -> List[Document]:
+    return [chunk for i, chunk in enumerate(chunks) if i != 0 or "if" not in chunk.page_content]
+
+# Generate embeddings
+async def generate_embeddings(chunks: List[Document], embedder: OllamaEmbeddings) -> List[Dict]:
+    results = []
+    for chunk in chunks:
+        embedding = await embedder.aembed_query(chunk.page_content)
+        results.append({
+            "content": chunk.page_content,
+            "embedding": embedding,
+            "metadata": chunk.metadata
+        })
+    return results
+
+# Run agent on chunk
+async def run_agent_on_chunk(chunk: Document, agent: AgentExecutor, prompts: List[str]) -> Dict:
+    results = {}
+    for prompt in prompts:
+        response = await agent.arun(prompt + ": " + chunk.page_content)
+        results[prompt] = response
+    return results
+
+# Insert into PostgreSQL
+async def insert_batch(conn: AsyncConnection, table: str, data: List[Dict]):
+    async with conn.cursor() as cur:
+        await cur.executemany(
+            f"INSERT INTO {table} (content, embedding, metadata) VALUES (%s, %s, %s)",
+            [(d["content"], d["embedding"], d["metadata"]) for d in data]
+        )
+        await conn.commit()
+
+# Main pipeline
+async def run_experiment_pipeline(text: str):
+    cleaned_text = clean_text(text)
+    embedder = OllamaEmbeddings(model="your-embedding-model")
+    agent = AgentExecutor.from_model("your-ollama-model")
+
+    conn = await get_pg_connection()
+
+    for chunk_size in CHUNK_SIZES:
+        for overlap in OVERLAPS:
+            splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=overlap)
+            chunks = splitter.create_documents([cleaned_text])
+            chunks = drop_first_if_chunk(chunks)
+
+            embeddings = await generate_embeddings(chunks, embedder)
+            await insert_batch(conn, "embeddings_table", embeddings)
+
+            for chunk in chunks:
+                agent_results = await run_agent_on_chunk(chunk, agent, PROMPTS)
+                # You can also insert agent_results into another table if needed
+
+    await conn.close()
+
+# Run the pipeline
+# asyncio.run(run_experiment_pipeline(your_text_here))
+
+Pokaż mniej
+🧠 Notes:
+You can extend this to include cosine similarity calculations using pgvector queries.
+You can store agent results in a separate table with prompt and response fields.
+You can add metadata like chunk index, chunk size, overlap, etc., for better tracking.
+Would you like me to help you write the SQL schema for the tables or add cosine similarity selection logic?
+
+
+
+
+
+
+
+
+You said:
+
+Write SQL schema for embeddings table
+Copilot said:
+Copilot
+Here’s a SQL schema for an embeddings_table that supports your use of LangChain, pgvector, and metadata storage. It’s designed to store:
+
+Chunk content
+Embedding vector (using pgvector)
+Metadata (as JSON)
+Chunking parameters (optional but useful for experiments)
+Timestamp for tracking
+✅ SQL Schema: embeddings_table
+
+
+
+SQL
+CREATE TABLE embeddings_table (
+    id SERIAL PRIMARY KEY,
+    content TEXT NOT NULL,
+    embedding VECTOR(768), -- Adjust dimension to match your model
+    metadata JSONB,
+    chunk_size INTEGER,
+    chunk_overlap INTEGER,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+🧩 Notes:
+VECTOR(768) assumes your embedding model outputs 768-dimensional vectors. Adjust this to match your Ollama model.
+metadata can store things like source filename, chunk index, tags, etc.
+chunk_size and chunk_overlap help track which parameters were used for each experiment.
+You can index embedding using pgvector for similarity search:
+
+
+
+SQL
+
+Would you like a schema for storing agent results or cosine similarity queries as well?
+
+
+
+
+
+
+
+
+You said:
+
+Provide schema for agent results table
+Copilot said:
+Copilot
+Here’s a SQL schema for an agent_results_table designed to store the outputs from your local Ollama agent runs on each chunk and the full text. It supports multiple prompts per chunk and includes metadata for traceability.
+
+✅ SQL Schema: agent_results_table
+
+
+
+SQL
+CREATE TABLE agent_results_table (
+    id SERIAL PRIMARY KEY,
+    chunk_id INTEGER REFERENCES embeddings_table(id) ON DELETE CASCADE,
+    prompt TEXT NOT NULL,
+    response TEXT NOT NULL,
+    model_name TEXT,
+    chunk_size INTEGER,
+    chunk_overlap INTEGER,
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+🧩 Explanation:
+chunk_id: Foreign key linking to the embeddings_table, so you can trace which chunk the agent processed.
+prompt: The specific prompt used (e.g., "Summarize", "Extract key facts").
+response: The agent's output.
+model_name: Useful if you experiment with different Ollama models.
+chunk_size and chunk_overlap: For tracking experimental parameters.
+metadata: Optional JSON field for additional context (e.g., source file, tags).
+created_at: Timestamp for auditing and versioning.
+Would you like a schema for storing cosine similarity results or a query example to retrieve the most relevant chunks based on similarity?
+
+
+
+
+
+
+
+
+You said:
+
+Schema for cosine similarity results
+Copilot said:
+Copilot
+Here’s a SQL schema for a cosine_similarity_results table that stores the results of similarity comparisons between a query embedding and stored chunk embeddings. This is useful for tracking which chunks are most relevant to a given query or experiment.
+
+✅ SQL Schema: cosine_similarity_results
+
+
+
+SQL
+CREATE TABLE cosine_similarity_results (
+    id SERIAL PRIMARY KEY,
+    query_id UUID NOT NULL, -- ID for the query or experiment
+    chunk_id INTEGER REFERENCES embeddings_table(id) ON DELETE CASCADE,
+    similarity_score DOUBLE PRECISION NOT NULL,
+    query_embedding VECTOR(768), -- Adjust dimension to match your model
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+🧩 Explanation:
+query_id: A unique identifier for the query or experiment (can be UUID or TEXT).
+chunk_id: Foreign key linking to the chunk in embeddings_table.
+similarity_score: Cosine similarity value between the query and the chunk.
+query_embedding: The embedding vector of the query used for comparison.
+metadata: Optional field to store context like query text, model used, etc.
+created_at: Timestamp for tracking when the similarity was calculated.
+🔍 Optional Index for Fast Retrieval
+
+
+
+SQL
+CREATE INDEX idx_similarity_score ON cosine_similarity_results (similarity_score DESC);
+This helps you quickly retrieve the most relevant chunks for a given query.
+
+Would you like a sample query to retrieve top-N similar chunks for a given query ID?
+
+
+
+
+
+
+
+
+You said:
+
+Add example metadata for similarity results
+Copilot said:
+Copilot
+Here’s an example of what the metadata field in the cosine_similarity_results table might contain. This JSON structure helps track the context of the similarity calculation, including the query, model, and experimental parameters.
+
+✅ Example metadata JSON
+
+
+
+JSON
+{
+  "query_text": "What are the key risks mentioned in the document?",
+  "model_name": "ollama-embedding-v1",
+  "experiment_id": "exp_2025_10_10_risk_analysis",
+  "chunking": {
+    "chunk_size": 512,
+    "chunk_overlap": 50
+  },
+  "source": "risk_report_october.txt",
+  "tags": ["risk", "finance", "summary"],
+  "user": "saternus.krzysztof"
+}
+🧩 Explanation:
+query_text: The natural language query used to generate the query embedding.
+model_name: Embedding model used for similarity calculation.
+experiment_id: Identifier for grouping results from the same experiment.
+chunking: Parameters used to generate the chunks.
+source: Original document or file name.
+tags: Optional categorization for filtering or analysis.
+user: Who ran the experiment (useful in multi-user setups).
+Would you like help writing a query to retrieve the top-N most similar chunks using this schema?
+
+
+
+
+
+
+
+
+You said:
+
+Write query to get top-N similar chunks
+Copilot said:
+Copilot
+Here’s a SQL query to retrieve the top-N most similar chunks from your cosine_similarity_results table, based on a given query_id. This assumes you’ve already computed and stored cosine similarity scores.
+
+✅ SQL Query: Top-N Similar Chunks
+
+
+
+SQL
+SELECT 
+    csr.chunk_id,
+    et.content,
+    csr.similarity_score,
+    csr.metadata,
+    et.metadata AS chunk_metadata
+FROM 
+    cosine_similarity_results csr
+JOIN 
+    embeddings_table et ON csr.chunk_id = et.id
+WHERE 
+    csr.query_id = 'your-query-id-here'
+ORDER BY 
+    csr.similarity_score DESC
+
+
+Pokaż więcej wierszy
+🧩 Replace:
+'your-query-id-here' with the actual UUID or identifier of your query.
+N with the number of top results you want (e.g., 5, 10, 20).
+🔍 Optional Filtering:
+You can also filter by tags or source file from metadata if needed:
+
+
+
+
+SQL
+AND csr.metadata ->> 'source' = 'risk_report_october.txt'
+Would you like help writing a Python function to run this query asynchronously using psycopg3?
+
+
+
+
+
+
+
+
+You said:
+
+Write async Python function for this query
+Copilot said:
+Copilot
+Here’s an async Python function using psycopg3 to retrieve the top-N most similar chunks from your PostgreSQL database, based on a given query_id.
+
+✅ Async Function: get_top_n_similar_chunks
+
+
+
+Python
+import asyncio
+from psycopg import AsyncConnection
+from psycopg.rows import dict_row
+from typing import List
+
+async def get_top_n_similar_chunks(query_id: str, top_n: int) -> List[dict]:
+    conn: AsyncConnection = await AsyncConnection.connect(
+        "postgresql://user:password@localhost/dbname",
+        row_factory=dict_row
+    )
+
+    async with conn.cursor() as cur:
+        await cur.execute("""
+            SELECT 
+                csr.chunk_id,
+                et.content,
+                csr.similarity_score,
+                csr.metadata,
+                et.metadata AS chunk_metadata
+            FROM 
+                cosine_similarity_results csr
+            JOIN 
+                embeddings_table et ON csr.chunk_id = et.id
+            WHERE 
+                csr.query_id = %s
+            ORDER BY 
+                csr.similarity_score DESC
+            LIMIT %s;
+        """, (query_id, top_n))
+
+        results = await cur.fetchall()
+
+    await conn.close()
+    return results
+
+Pokaż więcej wierszy
+🧪 Example Usage
+
+
+
+Python
+async def main():
+    results = await get_top_n_similar_chunks("exp_2025_10_10_risk_analysis", 5)
+    for r in results:
+        print(f"Chunk ID: {r['chunk_id']}, Score: {r['similarity_score']}")
+        print(f"Content: {r['content'][:100]}...\n")
+
+# asyncio.run(main())
+Would you like to extend this to include filtering by tags or source file from metadata?
+
+
+
+
+
+
+
+
+You said:
+
+Include source file filter example
+Copilot said:
+Copilot
+Here’s an updated version of the async Python function that includes a filter by source file from the metadata JSON field in the cosine_similarity_results table.
+
+✅ Updated Async Function: get_top_n_similar_chunks_by_source
+
+
+
+Python
+import asyncio
+from psycopg import AsyncConnection
+from psycopg.rows import dict_row
+from typing import List
+
+async def get_top_n_similar_chunks_by_source(query_id: str, top_n: int, source_file: str) -> List[dict]:
+    conn: AsyncConnection = await AsyncConnection.connect(
+        "postgresql://user:password@localhost/dbname",
+        row_factory=dict_row
+    )
+
+    async with conn.cursor() as cur:
+        await cur.execute("""
+            SELECT 
+                csr.chunk_id,
+                et.content,
+                csr.similarity_score,
+                csr.metadata,
+                et.metadata AS chunk_metadata
+            FROM 
+                cosine_similarity_results csr
+            JOIN 
+                embeddings_table et ON csr.chunk_id = et.id
+            WHERE 
+                csr.query_id = %s
+                AND csr.metadata ->> 'source' = %s
+            ORDER BY 
+                csr.similarity_score DESC
+            LIMIT %s;
+        """, (query_id, source_file, top_n))
+
+        results = await cur.fetchall()
+
+    await conn.close()
+    return results
+
+Pokaż więcej wierszy
+🧪 Example Usage
+
+
+
+Python
+async def main():
+    results = await get_top_n_similar_chunks_by_source(
+        query_id="exp_2025_10_10_risk_analysis",
+        top_n=5,
+        source_file="risk_report_october.txt"
+    )
+    for r in results:
+        print(f"Chunk ID: {r['chunk_id']}, Score: {r['similarity_score']}")
+        print(f"Content: {r['content'][:100]}...\n")
+
+# asyncio.run(main())
+Would you like to extend this to support filtering by tags or chunking parameters as well?

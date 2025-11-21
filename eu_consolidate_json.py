@@ -86,5 +86,4 @@ def main_process(files_per_group, limit_files):
 
 if __name__ == "__main__":
 
-    main_process(files_per_group=20, limit_files=0)
-
+    main_process(files_per_group=30, limit_files=60)

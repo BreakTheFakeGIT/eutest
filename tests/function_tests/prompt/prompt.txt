@@ -1,0 +1,935 @@
+I use Postgres Langchain, local Ollama model and embeddings.
+I use GPU
+I use psycopg 3 not alchemy.
+I use pgvector not FAISS.
+I want to write a prompt accoridng to schema by asking:
+
+"""
+Jesteś ekspertem w dziedzinie prawa podatkowego w obszarze {wybrano typ podatku CIT}, 
+specjalizującym się w analizie interpretacji indywidualnych, gdzie należy wykonać nastepujące sprawdzenia
+    Ustal, o jaki podatek chodzi.
+    Jeśli wskazano konkretny przepis prawa podatkowego, zwróć szczególną uwagę na interpretacje, które również go zawierają.
+    Jeżeli zapytanie dotyczy podatku CIT, podczas analizy porównawczej interpretacji, szczególną uwagę zwróć na następujące aspekty:
+    Podczas porównywania zapytania użytkownika z interpretacjami w bazie, zwróć szczególną uwagę na następujące elementy (w kolejności istotności):
+    •	Czy wnioskodawca podlega opodatkowaniu podatkiem dochodowym od osób prawnych?
+    •	Czy wnioskodawca jest osobą fizyczną czy osobą prawną?
+    •	Jaka jest forma prawna wnioskodawcy?
+    •	Czy wnioskodawca podlega w Polsce obowiązkowi podatkowemu od całości swoich dochodów bez względu na miejsce ich osiągania (posiada rezydencję podatkową w Polsce), czy tylko od dochodów, które osiąga na terytorium Polski (nie posiada rezydencji podatkowej w Polsce)?
+    •	Czy wnioskodawca występuje w charakterze podatnika czy płatnika?
+    •	Czy została wskazana forma opodatkowania dochodów / przychodów? (np. opodatkowanie na zasadach ogólnych, ryczałt od dochodów spółek, podatek u źródła)
+    •	Czy wnioskodawca korzysta z ulg podatkowych (np. ulga badawczo-rozwojowa, ulga IP Box, zwolnienie dochodów z tytułu decyzji o wsparciu, itd.)?
+    •	Jaki jest zakres działalności prowadzonej przez wnioskodawcę?
+
+Oto treść interpertacji: {tresc}
+
+Zwróć wyniki w postaci słownika
+"""
+I want to split text by chunk
+I want to imply output dictionary.
+I want to measure similarity.
+Write a function in Python.
+
+Dzisiaj
+You said:
+
+I use Postgres Langchain, local Ollama model and embeddings.
+I use psycopg 3 not alchemy.
+I use pgvector not FAISS.
+I want to write a prompt accoridng to schema by asking:
+
+"""
+Jesteś ekspertem w dziedzinie prawa podatkowego w obszarze {wybrano typ podatku CIT}, 
+specjalizującym się w analizie interpretacji indywidualnych. Z wprwadzonej treści {tresc} należy wykonać nastepujące sprzwdzenia
+    Ustal, o jaki podatek chodzi.
+    Jeśli wskazano konkretny przepis prawa podatkowego, zwróć szczególną uwagę na interpretacje, które również go zawierają.
+    Jeżeli zapytanie dotyczy podatku CIT, podczas analizy porównawczej interpretacji, szczególną uwagę zwróć na następujące aspekty:
+    Podczas porównywania zapytania użytkownika z interpretacjami w bazie, zwróć szczególną uwagę na następujące elementy (w kolejności istotności):
+    •	Czy wnioskodawca podlega opodatkowaniu podatkiem dochodowym od osób prawnych?
+    •	Czy wnioskodawca jest osobą fizyczną czy osobą prawną?
+    •	Jaka jest forma prawna wnioskodawcy?
+    •	Czy wnioskodawca podlega w Polsce obowiązkowi podatkowemu od całości swoich dochodów bez względu na miejsce ich osiągania (posiada rezydencję podatkową w Polsce), czy tylko od dochodów, które osiąga na terytorium Polski (nie posiada rezydencji podatkowej w Polsce)?
+    •	Czy wnioskodawca występuje w charakterze podatnika czy płatnika?
+    •	Czy została wskazana forma opodatkowania dochodów / przychodów? (np. opodatkowanie na zasadach ogólnych, ryczałt od dochodów spółek, podatek u źródła)
+    •	Czy wnioskodawca korzysta z ulg podatkowych (np. ulga badawczo-rozwojowa, ulga IP Box, zwolnienie dochodów z tytułu decyzji o wsparciu, itd.)?
+    •	Jaki jest zakres działalności prowadzonej przez wnioskodawcę?
+
+Zwróć wyniki w postaci słownika
+"""
+I want to imply output dictionary.
+I want to measure similarity.
+Write a Python code. 
+Copilot said:
+Copilot
+Analiza
+Here's a complete Python script tailored to your setup using:
+
+Langchain
+Local Ollama model
+PostgreSQL with pgvector
+psycopg3 (not SQLAlchemy)
+The script:
+
+Embeds a user query.
+Measures similarity against stored embeddings.
+Uses a structured Polish prompt to extract legal insights.
+Returns a dictionary-like response.
+However, the code execution failed because the environment doesn't have the langchain module installed. But you can run the following code locally in your environment where all dependencies are available:
+
+✅ Python Script
+
+
+
+Python
+from langchain.embeddings import OllamaEmbeddings
+from langchain.vectorstores.pgvector import PGVector
+from langchain.llms import Ollama
+from langchain.chains import LLMChain
+from langchain.prompts import PromptTemplate
+from langchain.chains.retrieval_qa.base import RetrievalQA
+
+# Prompt template in Polish
+prompt_template = """
+Jesteś ekspertem w dziedzinie prawa podatkowego w obszarze {typ_podatku}, 
+specjalizującym się w analizie interpretacji indywidualnych. Z wprowadzonej treści {tresc} należy wykonać następujące sprawdzenia:
+    Ustal, o jaki podatek chodzi.
+    Jeśli wskazano konkretny przepis prawa podatkowego, zwróć szczególną uwagę na interpretacje, które również go zawierają.
+    Jeżeli zapytanie dotyczy podatku CIT, podczas analizy porównawczej interpretacji, szczególną uwagę zwróć na następujące aspekty:
+    • Czy wnioskodawca podlega opodatkowaniu podatkiem dochodowym od osób prawnych?
+    • Czy wnioskodawca jest osobą fizyczną czy osobą prawną?
+    • Jaka jest forma prawna wnioskodawcy?
+    • Czy wnioskodawca podlega w Polsce obowiązkowi podatkowemu od całości swoich dochodów bez względu na miejsce ich osiągania, czy tylko od dochodów osiąganych w Polsce?
+    • Czy wnioskodawca występuje w charakterze podatnika czy płatnika?
+    • Czy została wskazana forma opodatkowania dochodów/przychodów?
+    • Czy wnioskodawca korzysta z ulg podatkowych?
+    • Jaki jest zakres działalności prowadzonej przez wnioskodawcę?
+
+Zwróć wyniki w postaci słownika.
+"""
+
+# Prompt setup
+prompt = PromptTemplate(
+    input_variables=["typ_podatku", "tresc"],
+    template=prompt_template
+)
+
+# Initialize local Ollama model
+llm = Ollama(model="llama3")
+
+# Create the chain
+chain = LLMChain(llm=llm, prompt=prompt)
+
+# Embedding model
+embedding = OllamaEmbeddings(model="llama3")
+
+# PostgreSQL connection string (adjust credentials)
+CONNECTION_STRING = "postgresql+psycopg://username:password@localhost:5432/dbname"
+
+# Vector store
+vectorstore = PGVector(
+    connection_string=CONNECTION_STRING,
+    embedding_function=embedding,
+    collection_name="tax_law_embeddings"
+)
+
+# Retrieval QA chain
+qa_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    chain_type="stuff",
+    retriever=vectorstore.as_retriever(),
+    return_source_documents=True
+)
+
+# Example query
+user_query = {
+    "typ_podatku": "CIT",
+    "tresc": "Czy spółka z o.o. prowadząca działalność badawczo-rozwojową może skorzystać z ulgi IP Box?"
+}
+
+# Run the prompt
+response = chain.run(user_query)
+
+# Similarity search
+similar_docs = vectorstore.similarity_search(user_query["tresc"], k=5)
+
+# Output
+print("Structured Analysis:\n", response)
+print("\nTop 5 Similar Documents:")
+for doc in similar_docs:
+    print(doc.page_content)
+
+
+Pokaż więcej wierszy
+🧠 Notes:
+Replace username, password, dbname with your actual PostgreSQL credentials.
+Ensure langchain, psycopg[binary], pgvector, and ollama are installed in your environment.
+You can wrap the output in a function or API if needed.
+Would you like me to help you turn this into a FastAPI endpoint or a Streamlit app for easier use?
+
+
+
+
+
+
+
+
+You said:
+
+Create a Streamlit app for this
+Copilot said:
+Copilot
+Analiza
+Here's a Streamlit app script that you can run locally to analyze tax law queries using:
+
+Langchain
+Local Ollama model
+PostgreSQL with pgvector
+psycopg3 (not SQLAlchemy)
+✅ How It Works
+User selects a tax type (e.g., CIT).
+Enters a legal query.
+The app:
+Embeds the query.
+Finds the top 5 most similar interpretations from your pgvector database.
+Uses a structured prompt to generate a dictionary-style legal analysis.
+🖥️ Streamlit App Code
+Save this as app.py and run with streamlit run app.py:
+
+
+
+
+Python
+import streamlit as st
+from langchain.embeddings import OllamaEmbeddings
+from langchain.vectorstores.pgvector import PGVector
+from langchain.llms import Ollama
+from langchain.chains import LLMChain
+from langchain.prompts import PromptTemplate
+from langchain.chains.retrieval_qa.base import RetrievalQA
+
+# UI
+st.title("Ekspert prawa podatkowego – Analiza interpretacji")
+st.write("Wprowadź zapytanie i wybierz typ podatku.")
+
+# Inputs
+typ_podatku = st.selectbox("Typ podatku:", ["CIT", "VAT", "PIT"])
+tresc = st.text_area("Treść zapytania:")
+
+if st.button("Analizuj"):
+    # Prompt
+    prompt_template = """
+    Jesteś ekspertem w dziedzinie prawa podatkowego w obszarze {typ_podatku}, 
+    specjalizującym się w analizie interpretacji indywidualnych. Z wprowadzonej treści {tresc} należy wykonać następujące sprawdzenia:
+        Ustal, o jaki podatek chodzi.
+        Jeśli wskazano konkretny przepis prawa podatkowego, zwróć szczególną uwagę na interpretacje, które również go zawierają.
+        Jeżeli zapytanie dotyczy podatku CIT, podczas analizy porównawczej interpretacji, szczególną uwagę zwróć na następujące aspekty:
+        • Czy wnioskodawca podlega opodatkowaniu podatkiem dochodowym od osób prawnych?
+        • Czy wnioskodawca jest osobą fizyczną czy osobą prawną?
+        • Jaka jest forma prawna wnioskodawcy?
+        • Czy wnioskodawca podlega w Polsce obowiązkowi podatkowemu od całości swoich dochodów bez względu na miejsce ich osiągania, czy tylko od dochodów osiąganych w Polsce?
+        • Czy wnioskodawca występuje w charakterze podatnika czy płatnika?
+        • Czy została wskazana forma opodatkowania dochodów/przychodów?
+        • Czy wnioskodawca korzysta z ulg podatkowych?
+        • Jaki jest zakres działalności prowadzonej przez wnioskodawcę?
+
+    Zwróć wyniki w postaci słownika.
+    """
+
+    prompt = PromptTemplate(
+        input_variables=["typ_podatku", "tresc"],
+        template=prompt_template
+    )
+
+    # Langchain setup
+    llm = Ollama(model="llama3")
+    chain = LLMChain(llm=llm, prompt=prompt)
+    embedding = OllamaEmbeddings(model="llama3")
+
+    # PostgreSQL connection (adjust this!)
+    CONNECTION_STRING = "postgresql+psycopg://username:password@localhost:5432/dbname"
+
+    vectorstore = PGVector(
+        connection_string=CONNECTION_STRING,
+        embedding_function=embedding,
+        collection_name="tax_law_embeddings"
+    )
+
+    # Run prompt
+    user_query = {"typ_podatku": typ_podatku, "tresc": tresc}
+    response = chain.run(user_query)
+
+    # Similarity search
+    similar_docs = vectorstore.similarity_search(tresc, k=5)
+
+    # Output
+    st.subheader("Wynik analizy (słownik):")
+    st.write(response)
+
+    st.subheader("Top 5 podobnych interpretacji:")
+    for i, doc in enumerate(similar_docs, 1):
+        st.markdown(f"**Interpretacja {i}:**")
+        st.write(doc.page_content)
+
+Pokaż więcej wierszy
+🛠️ Before Running:
+Install dependencies:
+
+
+
+Shell
+pip install streamlit langchain psycopg[binary] pgvector
+Ensure your Ollama model is running locally (ollama run llama3).
+Replace the CONNECTION_STRING with your actual PostgreSQL credentials.
+Would you like me to help you:
+
+Add file upload for new interpretations?
+Visualize similarity scores?
+Export results to PDF or Excel?
+Let me know how you'd like to extend it!
+
+
+
+#############################################################
+
+
+
+
+You said:
+
+I use Postgres Langchain, local Ollama model and embeddings.
+I use GPU
+I use psycopg 3 not alchemy.
+I use pgvector not FAISS.
+I want to write a prompt accoridng to schema by asking:
+
+"""
+Jesteś ekspertem w dziedzinie prawa podatkowego w obszarze {wybrano typ podatku CIT}, 
+specjalizującym się w analizie interpretacji indywidualnych, gdzie należy wykonać nastepujące sprawdzenia
+    Ustal, o jaki podatek chodzi.
+    Jeśli wskazano konkretny przepis prawa podatkowego, zwróć szczególną uwagę na interpretacje, które również go zawierają.
+    Jeżeli zapytanie dotyczy podatku CIT, podczas analizy porównawczej interpretacji, szczególną uwagę zwróć na następujące aspekty:
+    Podczas porównywania zapytania użytkownika z interpretacjami w bazie, zwróć szczególną uwagę na następujące elementy (w kolejności istotności):
+    •	Czy wnioskodawca podlega opodatkowaniu podatkiem dochodowym od osób prawnych?
+    •	Czy wnioskodawca jest osobą fizyczną czy osobą prawną?
+    •	Jaka jest forma prawna wnioskodawcy?
+    •	Czy wnioskodawca podlega w Polsce obowiązkowi podatkowemu od całości swoich dochodów bez względu na miejsce ich osiągania (posiada rezydencję podatkową w Polsce), czy tylko od dochodów, które osiąga na terytorium Polski (nie posiada rezydencji podatkowej w Polsce)?
+    •	Czy wnioskodawca występuje w charakterze podatnika czy płatnika?
+    •	Czy została wskazana forma opodatkowania dochodów / przychodów? (np. opodatkowanie na zasadach ogólnych, ryczałt od dochodów spółek, podatek u źródła)
+    •	Czy wnioskodawca korzysta z ulg podatkowych (np. ulga badawczo-rozwojowa, ulga IP Box, zwolnienie dochodów z tytułu decyzji o wsparciu, itd.)?
+    •	Jaki jest zakres działalności prowadzonej przez wnioskodawcę?
+
+Oto treść interpertacji: {tresc}
+
+Zwróć wyniki w postaci słownika
+"""
+I want to split text by chunk
+I want to imply output dictionary.
+I want to measure similarity.
+Write a function in Python.
+Copilot said:
+Copilot
+Analiza
+It looks like there was an issue during code execution. Let's walk through the logic and provide a sample Python function that matches your setup:
+
+✅ Assumptions:
+You're using:
+Langchain with a local Ollama model for embeddings.
+PostgreSQL with pgvector for vector storage.
+psycopg3 for database interaction.
+You want to:
+Split a legal interpretation (tresc) into chunks.
+Embed each chunk.
+Store embeddings in PostgreSQL.
+Compare similarity with a prompt embedding.
+Return results as a dictionary.
+🧠 Sample Python Function
+
+
+
+Python
+import psycopg
+from langchain.embeddings import OllamaEmbeddings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+import numpy as np
+
+# Initialize embedding model
+embedding_model = OllamaEmbeddings(model="your-local-model-name")
+
+# Connect to PostgreSQL
+conn = psycopg.connect("dbname=your_db user=your_user password=your_password host=localhost")
+cursor = conn.cursor()
+
+def process_interpretation(tresc: str, prompt: str, chunk_size=500, chunk_overlap=50):
+    # Split text into chunks
+    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    chunks = splitter.split_text(tresc)
+
+    # Embed prompt
+    prompt_embedding = embedding_model.embed_query(prompt)
+
+    results = {}
+
+    for i, chunk in enumerate(chunks):
+        # Embed chunk
+        chunk_embedding = embedding_model.embed_query(chunk)
+
+        # Store embedding in PostgreSQL
+        cursor.execute(
+            "INSERT INTO interpretations (chunk_id, chunk_text, embedding) VALUES (%s, %s, %s)",
+            (i, chunk, chunk_embedding)
+        )
+
+        # Measure similarity (cosine similarity)
+        similarity = np.dot(prompt_embedding, chunk_embedding) / (
+            np.linalg.norm(prompt_embedding) * np.linalg.norm(chunk_embedding)
+        )
+
+        results[f"chunk_{i}"] = {
+            "text": chunk,
+            "similarity": similarity
+        }
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return results
+``
+
+Pokaż mniej
+🗂️ Notes:
+Replace "your-local-model-name" with the actual name of your Ollama model.
+Ensure your interpretations table has a vector(1536) column for embeddings (adjust size as needed).
+You can modify the schema to include additional metadata if needed.
+Would you like help generating the SQL schema for the interpretations table or testing this function with sample data?
+
+
+
+
+
+
+
+
+You said:
+
+Add metadata fields to the output dictionary
+Copilot said:
+Copilot
+Analiza
+It seems the code execution failed again, possibly due to limitations in extracting structured metadata from unstructured legal text. Let me provide you with a revised version of the function that includes metadata fields in the output dictionary, and outlines how you could extract them using basic keyword matching or NLP techniques.
+
+🧠 Updated Python Function with Metadata
+
+
+
+Python
+import psycopg
+from langchain.embeddings import OllamaEmbeddings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+import numpy as np
+
+# Initialize embedding model
+embedding_model = OllamaEmbeddings(model="your-local-model-name")
+
+# Connect to PostgreSQL
+conn = psycopg.connect("dbname=your_db user=your_user password=your_password host=localhost")
+cursor = conn.cursor()
+
+def extract_metadata(text):
+    """Basic keyword-based metadata extraction from chunk text."""
+    metadata = {
+        "subject_to_CIT": "CIT" in text,
+        "legal_form": "spółka" if "spółka" in text else "osoba fizyczna" if "osoba fizyczna" in text else "nieznana",
+        "residency_status": "rezydent" if "rezydent" in text else "nierezydent" if "nierezydent" in text else "nieznana",
+        "role": "podatnik" if "podatnik" in text else "płatnik" if "płatnik" in text else "nieznana",
+        "taxation_form": "ryczałt" if "ryczałt" in text else "zasady ogólne" if "zasady ogólne" in text else "nieznana",
+        "tax_reliefs": [rel for rel in ["ulga B+R", "IP Box", "decyzja o wsparciu"] if rel in text],
+        "scope_of_activity": "produkcja" if "produkcja" in text else "usługi" if "usługi" in text else "nieznana"
+    }
+    return metadata
+
+def process_interpretation(tresc: str, prompt: str, chunk_size=500, chunk_overlap=50):
+    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    chunks = splitter.split_text(tresc)
+
+    prompt_embedding = embedding_model.embed_query(prompt)
+    results = {}
+
+    for i, chunk in enumerate(chunks):
+        chunk_embedding = embedding_model.embed_query(chunk)
+
+        cursor.execute(
+            "INSERT INTO interpretations (chunk_id, chunk_text, embedding) VALUES (%s, %s, %s)",
+            (i, chunk, chunk_embedding)
+        )
+
+        similarity = np.dot(prompt_embedding, chunk_embedding) / (
+            np.linalg.norm(prompt_embedding) * np.linalg.norm(chunk_embedding)
+        )
+
+        metadata = extract_metadata(chunk)
+
+        results[f"chunk_{i}"] = {
+            "chunk_id": i,
+            "similarity": similarity,
+            "text": chunk,
+            "metadata": metadata
+        }
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return results
+
+Pokaż mniej
+🧾 Metadata Fields Included:
+subject_to_CIT
+legal_form
+residency_status
+role (podatnik/płatnik)
+taxation_form
+tax_reliefs (list)
+scope_of_activity
+This version uses simple keyword matching. For more accurate extraction, you could integrate a legal-specific NLP model or use regex patterns tailored to Polish tax law language.
+
+Would you like help setting up a more advanced metadata extraction using NLP or spaCy with Polish language support?
+
+
+
+
+
+
+
+
+You said:
+
+Use spaCy for advanced metadata extraction
+Copilot said:
+Copilot
+Analiza
+It seems the code execution failed again, possibly due to environment limitations or missing dependencies. Let me provide you with a complete and annotated Python function that you can run locally in your own environment.
+
+🧠 Full Python Function with spaCy Metadata Extraction
+
+
+
+Python
+import psycopg
+import numpy as np
+import spacy
+from langchain.embeddings import OllamaEmbeddings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+# Load spaCy model
+nlp = spacy.load("pl_core_news_lg")  # Use a Polish model if working with Polish texts
+# Initialize embedding model
+embedding_model = OllamaEmbeddings(model="your-local-model-name")
+
+# PostgreSQL connection
+conn = psycopg.connect("dbname=your_db user=your_user password=your_password host=localhost")
+cursor = conn.cursor()
+
+def extract_metadata(text):
+    doc = nlp(text)
+    metadata = {
+        "entities": [(ent.text, ent.label_) for ent in doc.ents],
+        "noun_chunks": [chunk.text for chunk in doc.noun_chunks],
+        "legal_refs": [token.text for token in doc if "art." in token.text.lower() or "ust." in token.text.lower()]
+    }
+    return metadata
+
+def process_interpretation(tresc: str, prompt: str, chunk_size=500, chunk_overlap=50):
+    # Split text into chunks
+    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    chunks = splitter.split_text(tresc)
+
+    # Embed prompt
+    prompt_embedding = embedding_model.embed_query(prompt)
+
+    results = {}
+
+    for i, chunk in enumerate(chunks):
+        # Embed chunk
+        chunk_embedding = embedding_model.embed_query(chunk)
+
+        # Store embedding in PostgreSQL
+        cursor.execute(
+            "INSERT INTO interpretations (chunk_id, chunk_text, embedding) VALUES (%s, %s, %s)",
+            (i, chunk, chunk_embedding)
+        )
+
+        # Measure similarity
+        similarity = np.dot(prompt_embedding, chunk_embedding) / (
+            np.linalg.norm(prompt_embedding) * np.linalg.norm(chunk_embedding)
+        )
+
+        # Extract metadata using spaCy
+        metadata = extract_metadata(chunk)
+
+        results[f"chunk_{i}"] = {
+            "text": chunk,
+            "similarity": similarity,
+            "metadata": metadata
+        }
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return results
+``
+
+Pokaż więcej wierszy
+🗂️ PostgreSQL Table Schema (pgvector)
+Make sure your table is set up like this:
+
+
+
+
+SQL
+CREATE TABLE interpretations (
+    chunk_id INTEGER PRIMARY KEY,
+    chunk_text TEXT,
+    embedding VECTOR(1536)  -- Adjust size to match your model
+);
+✅ What This Function Does:
+Splits the interpretation text into manageable chunks.
+Embeds each chunk using your local Ollama model.
+Stores the chunk and its embedding in PostgreSQL using pgvector.
+Uses spaCy to extract metadata like named entities, noun phrases, and legal references.
+Measures similarity between the prompt and each chunk.
+Returns a dictionary with all relevant data.
+Would you like help adapting this to a specific database schema or testing it with sample input?
+
+
+
+
+
+
+
+
+You said:
+
+Show example input and output
+Copilot said:
+Copilot
+Here’s an example of how the function would work with sample input and what the output might look like:
+
+📥 Example Input
+
+
+
+Python
+tresc = """
+Spółka z o.o. z siedzibą w Warszawie prowadzi działalność badawczo-rozwojową i korzysta z ulgi B+R. 
+Wnioskodawca posiada rezydencję podatkową w Polsce i opodatkowuje dochody na zasadach ogólnych. 
+Zapytał, czy może skorzystać z ulgi IP Box w odniesieniu do dochodów z kwalifikowanych praw własności intelektualnej.
+"""
+
+prompt = """
+Jesteś ekspertem w dziedzinie prawa podatkowego w obszarze CIT, 
+specjalizującym się w analizie interpretacji indywidualnych, gdzie należy wykonać następujące sprawdzenia...
+"""
+📤 Example Output
+
+
+
+Python
+{
+  "chunk_0": {
+    "text": "Spółka z o.o. z siedzibą w Warszawie prowadzi działalność badawczo-rozwojową i korzysta z ulgi B+R...",
+    "similarity": 0.87,
+    "metadata": {
+      "entities": [
+        ("Spółka z o.o.", "ORG"),
+        ("Warszawie", "LOC")
+      ],
+      "noun_chunks": [
+        "Spółka z o.o.",
+        "siedzibą w Warszawie",
+        "działalność badawczo-rozwojową",
+        "ulgi B+R"
+      ],
+      "legal_refs": []
+    }
+  },
+  "chunk_1": {
+    "text": "Wnioskodawca posiada rezydencję podatkową w Polsce i opodatkowuje dochody na zasadach ogólnych...",
+    "similarity": 0.91,
+    "metadata": {
+      "entities": [
+        ("Polsce", "LOC")
+      ],
+      "noun_chunks": [
+        "Wnioskodawca",
+        "rezydencję podatkową w Polsce",
+        "dochody",
+        "zasadach ogólnych"
+      ],
+      "legal_refs": []
+    }
+  },
+  "chunk_2": {
+    "text": "Zapytał, czy może skorzystać z ulgi IP Box w odniesieniu do dochodów z kwalifikowanych praw własności intelektualnej.",
+    "similarity": 0.93,
+    "metadata": {
+      "entities": [
+        ("IP Box", "MISC")
+      ],
+      "noun_chunks": [
+        "ulgi IP Box",
+        "dochodów",
+        "kwalifikowanych praw własności intelektualnej"
+      ],
+      "legal_refs": []
+    }
+  }
+}
+
+
+Pokaż więcej wierszy
+🔍 What You Get:
+Chunked text for granular analysis.
+Similarity score to the expert prompt.
+Extracted metadata using spaCy:
+Named entities (e.g. organizations, locations).
+Noun phrases for context.
+Legal references (e.g. "art.", "ust.").
+Would you like me to help you test this with real data or generate a script to run it interactively?
+
+
+
+
+
+
+
+
+You said:
+
+How to retrieve results from DB?
+Copilot said:
+Copilot
+To retrieve results from your PostgreSQL database where embeddings and chunked interpretations are stored, you can use psycopg3 to query the table and optionally compute similarity scores again if needed.
+
+🧾 Example: Retrieve and Rank Results by Similarity
+
+
+
+Python
+import psycopg
+import numpy as np
+from langchain.embeddings import OllamaEmbeddings
+
+# Initialize embedding model
+embedding_model = OllamaEmbeddings(model="your-local-model-name")
+
+# Connect to PostgreSQL
+conn = psycopg.connect("dbname=your_db user=your_user password=your_password host=localhost")
+cursor = conn.cursor()
+
+def retrieve_similar_chunks(prompt: str, top_k=5):
+    # Embed the prompt
+    prompt_embedding = embedding_model.embed_query(prompt)
+
+    # Retrieve all chunks and embeddings
+    cursor.execute("SELECT chunk_id, chunk_text, embedding FROM interpretations")
+    rows = cursor.fetchall()
+
+    results = []
+
+    for chunk_id, chunk_text, embedding in rows:
+        # Compute cosine similarity
+        similarity = np.dot(prompt_embedding, embedding) / (
+            np.linalg.norm(prompt_embedding) * np.linalg.norm(embedding)
+        )
+
+        results.append({
+            "chunk_id": chunk_id,
+            "text": chunk_text,
+            "similarity": similarity
+        })
+
+    # Sort by similarity
+    results.sort(key=lambda x: x["similarity"], reverse=True)
+
+    # Return top_k results
+    return results[:top_k]
+
+Pokaż więcej wierszy
+🧪 Example Usage
+
+
+
+Python
+prompt = "Czy spółka z o.o. może skorzystać z ulgi IP Box?"
+top_chunks = retrieve_similar_chunks(prompt)
+
+for chunk in top_chunks:
+    print(f"Chunk {chunk['chunk_id']} (Similarity: {chunk['similarity']:.2f})")
+    print(chunk['text'])
+    print("---")
+✅ What This Does:
+Embeds the query prompt.
+Retrieves all stored chunks and their embeddings.
+Computes similarity scores.
+Returns the top most relevant chunks.
+Would you like to extend this to include metadata filtering (e.g. only chunks mentioning “IP Box” or “ulga B+R”)?
+
+
+
+
+
+
+
+
+You said:
+
+Show how to update chunk metadata
+Copilot said:
+Copilot
+To update metadata for a specific chunk in your PostgreSQL database using psycopg3, you can follow this approach:
+
+🧾 Step-by-Step: Update Metadata
+Assuming your table interpretations has a column metadata of type JSONB, here’s how you can update it:
+
+
+
+
+Python
+import psycopg
+import json
+
+# Connect to PostgreSQL
+conn = psycopg.connect("dbname=your_db user=your_user password=your_password host=localhost")
+cursor = conn.cursor()
+
+def update_chunk_metadata(chunk_id: int, new_metadata: dict):
+    # Convert metadata to JSON string
+    metadata_json = json.dumps(new_metadata)
+
+    # Update the metadata field
+    cursor.execute(
+        "UPDATE interpretations SET metadata = %s WHERE chunk_id = %s",
+        (metadata_json, chunk_id)
+    )
+
+    conn.commit()
+    print(f"Metadata for chunk {chunk_id} updated successfully.")
+
+    cursor.close()
+    conn.close()
+
+Pokaż więcej wierszy
+🧪 Example Usage
+
+
+
+Python
+new_metadata = {
+    "entities": [("Warszawa", "LOC"), ("Spółka z o.o.", "ORG")],
+    "legal_refs": ["art. 15", "ust. 1"],
+    "subject_role": "podatnik"
+}
+
+update_chunk_metadata(chunk_id=1, new_metadata=new_metadata)
+✅ Requirements:
+Your table must have a metadata JSONB column:
+
+
+
+SQL
+ALTER TABLE interpretations ADD COLUMN metadata JSONB;
+Would you like help writing a query to retrieve chunks based on metadata filters (e.g. all chunks mentioning “IP Box”)?
+
+
+
+
+
+
+
+
+You said:
+
+How to validate metadata format?
+Copilot said:
+Copilot
+To validate metadata format before updating or storing it in your PostgreSQL database, you can use Python's pydantic or a simple schema check with jsonschema. Here's how to do both:
+
+✅ Option 1: Using pydantic (Recommended for Python apps)
+
+
+
+Python
+from pydantic import BaseModel, ValidationError
+from typing import List, Tuple
+
+class MetadataModel(BaseModel):
+    entities: List[Tuple[str, str]]
+    noun_chunks: List[str]
+    legal_refs: List[str]
+    subject_role: str
+def validate_metadata(metadata: dict):
+    try:
+        validated = MetadataModel(**metadata)
+        return True, validated
+    except ValidationError as e:
+        return False, e.errors()
+``
+
+Pokaż więcej wierszy
+🧪 Example Usage
+
+
+
+Python
+metadata = {
+    "entities": [("Warszawa", "LOC"), ("Spółka z o.o.", "ORG")],
+    "noun_chunks": ["Spółka z o.o.", "ulga B+R"],
+    "legal_refs": ["art. 15", "ust. 1"],
+    "subject_role": "podatnik"
+}
+
+is_valid, result = validate_metadata(metadata)
+if is_valid:
+    print("✅ Metadata is valid.")
+else:
+    print("❌ Metadata errors:", result)
+✅ Option 2: Using jsonschema
+
+
+
+Python
+from jsonschema import validate, ValidationError
+
+metadata_schema = {
+    "type": "object",
+    "properties": {
+        "entities": {
+            "type": "array",
+            "items": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 2,
+                "maxItems": 2
+            }
+        },
+        "noun_chunks": {"type": "array", "items": {"type": "string"}},
+        "legal_refs": {"type": "array", "items": {"type": "string"}},
+        "subject_role": {"type": "string"}
+    },
+    "required": ["entities", "noun_chunks", "legal_refs", "subject_role"]
+}
+
+def validate_metadata_json(metadata: dict):
+    try:
+        validate(instance=metadata, schema=metadata_schema)
+        return True
+    except ValidationError as e:
+        return False, str(e)
+
+Pokaż więcej wierszy
+🧠 Why Validate?
+Prevents malformed data from being inserted into your database.
+Ensures consistency for downstream processing (e.g. filtering, analytics).
+Helps catch bugs early in your pipeline.
+Would you like me to help integrate this validation into your update function or add logging for failed validations?

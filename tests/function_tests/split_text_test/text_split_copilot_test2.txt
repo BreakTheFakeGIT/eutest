@@ -1,0 +1,277 @@
+import psycopg
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.embeddings import OllamaEmbeddings
+from langchain.vectorstores import FAISS
+from langchain.agents import initialize_agent, AgentType
+from langchain.llms import Ollama
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+
+def process_text_and_store(text, chunk_size, chunk_overlap, prompts, db_config):
+    # 1. Split text into chunks
+    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    chunks = splitter.split_text(text)
+
+    # 2. Create embeddings
+    embedding_model = OllamaEmbeddings(model="your-ollama-embedding-model")
+    embeddings = embedding_model.embed_documents(chunks)
+
+    # 3. Calculate cosine similarity matrix
+    similarity_matrix = cosine_similarity(embeddings)
+
+    # 4. Initialize agent
+    llm = Ollama(model="your-ollama-agent-model")
+    agent = initialize_agent([], llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True)
+
+    # 5. Extract information using prompts
+    extracted_data = []
+    for i, chunk in enumerate(chunks):
+        chunk_info = {"chunk_index": i, "chunk_text": chunk, "similarities": similarity_matrix[i].tolist()}
+        for prompt in prompts:
+            response = agent.run(f"{prompt}\n\n{chunk}")
+            chunk_info[prompt] = response
+        extracted_data.append(chunk_info)
+
+    # 6. Insert into PostgreSQL using psycopg3
+    with psycopg.connect(**db_config) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS chunk_analysis (
+                    id SERIAL PRIMARY KEY,
+                    chunk_index INT,
+                    chunk_text TEXT,
+                    similarities FLOAT[],
+                    prompt TEXT,
+                    response TEXT
+                )
+            """)
+            for data in extracted_data:
+                for prompt in prompts:
+                    cur.execute("""
+                        INSERT INTO chunk_analysis (chunk_index, chunk_text, similarities, prompt, response)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (
+                        data["chunk_index"],
+                        data["chunk_text"],
+                        data["similarities"],
+                        prompt,
+                        data[prompt]
+                    ))
+            conn.commit()
+
+    # 7. Select and return data
+    with psycopg.connect(**db_config) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM chunk_analysis")
+            results = cur.fetchall()
+
+
+Pokaż mniej
+Parameters:
+text: The input text to process.
+chunk_size, chunk_overlap: Parameters for splitting.
+prompts: A list of prompts to run on each chunk.
+db_config: A dictionary with PostgreSQL connection parameters, e.g.:
+
+
+
+Python
+db_config = {
+    "host": "localhost",
+    "port": 5432,
+    "dbname": "your_db",
+    "user": "your_user",
+    "password": "your_password"
+}
+Would you like me to help you test this with sample data or generate a script to run it from CLI or a notebook?
+
+
+
+
+
+
+
+
+You said:
+
+Show me how to test with sample data
+Copilot said:
+Copilot
+Great! Here's a simple way to test the function using sample data. This includes:
+
+A short sample text.
+A couple of example prompts.
+A local PostgreSQL test database configuration.
+✅ Step-by-step test setup
+1. Sample text
+
+
+
+Python
+sample_text = """
+LangChain is a framework for developing applications powered by language models. 
+It enables chaining together components like LLMs, prompts, memory, and agents.
+LangChain supports integrations with many tools including Ollama, FAISS, and PostgreSQL.
+"""
+
+2. Prompts
+
+
+
+Python
+prompts = [
+    "Summarize the content.",
+    "List all tools mentioned."
+]
+3. Chunking parameters
+
+
+
+Python
+chunk_size = 100
+
+4. PostgreSQL test config
+Make sure you have a local PostgreSQL instance running and a database created (e.g., langchain_test).
+
+
+
+
+Python
+db_config = {
+    "host": "localhost",
+    "port": 5432,
+    "dbname": "langchain_test",
+    "user": "postgres",
+    "password": "your_password"
+}
+
+5. Run the function
+
+
+
+Python
+results = process_text_and_store(
+    text=sample_text,
+    chunk_size=chunk_size,
+    chunk_overlap=chunk_overlap,
+    prompts=prompts,
+    db_config=db_config
+)
+
+for row in results:
+
+🧪 Before running:
+Replace "your-ollama-embedding-model" and "your-ollama-agent-model" with the actual names of your local Ollama models.
+Ensure psycopg3 is installed:
+
+
+
+
+
+
+
+
+import uuid
+from datetime import datetime
+
+def process_text_and_store(text, chunk_size, chunk_overlap, prompts, db_config):
+    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    chunks = splitter.split_text(text)
+
+    embedding_model = OllamaEmbeddings(model="nomic-embed-text")
+    embeddings = embedding_model.embed_documents(chunks)
+    similarity_matrix = cosine_similarity(embeddings)
+
+    llm = Ollama(model="llama3")
+    agent = initialize_agent([], llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=False)
+
+    extracted_data = []
+    for i, chunk in enumerate(chunks):
+        chunk_id = str(uuid.uuid4())
+        timestamp = datetime.utcnow()
+        similarities = similarity_matrix[i].tolist()
+
+        for prompt in prompts:
+            response = agent.run(f"{prompt}\n\n{chunk}")
+            extracted_data.append({
+                "chunk_id": chunk_id,
+                "chunk_index": i,
+                "chunk_text": chunk,
+                "similarities": similarities,
+                "prompt": prompt,
+                "response": response,
+                "timestamp": timestamp,
+                "source": "test_script"  # You can customize this
+            })
+
+    with psycopg.connect(**db_config) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS chunk_analysis (
+                    id SERIAL PRIMARY KEY,
+                    chunk_id UUID,
+                    chunk_index INT,
+                    chunk_text TEXT,
+                    similarities FLOAT8[],
+                    prompt TEXT,
+                    response TEXT,
+                    timestamp TIMESTAMPTZ,
+                    source TEXT
+                )
+            """)
+            for data in extracted_data:
+                cur.execute("""
+                    INSERT INTO chunk_analysis (
+                        chunk_id, chunk_index, chunk_text, similarities,
+                        prompt, response, timestamp, source
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    data["chunk_id"],
+                    data["chunk_index"],
+                    data["chunk_text"],
+                    data["similarities"],
+                    data["prompt"],
+                    data["response"],
+                    data["timestamp"],
+                    data["source"]
+                ))
+            conn.commit()
+
+    with psycopg.connect(**db_config) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM chunk_analysis")
+            return cur.fetchall()
+
+
+# 7. Select and return data with metadata
+    with psycopg.connect(**db_config) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT 
+                    id,
+                    chunk_id,
+                    chunk_index,
+                    chunk_text,
+                    similarities,
+                    prompt,
+                    response,
+                    timestamp,
+                    source
+                FROM chunk_analysis
+                ORDER BY timestamp DESC
+            """)
+            results = cur.fetchall()
+
+            print("\n=== Results with Metadata ===")
+            for row in results:
+                print(f"""
+ID: {row[0]}
+Chunk ID: {row[1]}
+Chunk Index: {row[2]}
+Chunk Text: {row[3]}
+Similarities: {row[4]}
+Prompt: {row[5]}
+Response: {row[6]}
+Timestamp: {row[7]}
+Source: {row[8]}
+                """)

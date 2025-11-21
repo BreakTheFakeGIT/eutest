@@ -173,3 +173,9 @@ https://lopezyse.medium.com/knowledge-graphs-from-scratch-with-python-f3c2a05914
 
 # Pystempel
 https://htmlpreview.github.io/?https://github.com/dzieciou/pystempel/blob/master/Evaluation.html
+
+# Streaming LLM
+https://til.simonwillison.net/llms/streaming-llm-apis
+https://www.youtube.com/watch?v=cy6EAp4iNN4
+
+https://github.com/NeuralNine/youtube-tutorials/blob/main/LLM%20Development/main.py
