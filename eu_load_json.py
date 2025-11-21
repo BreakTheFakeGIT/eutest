@@ -31,7 +31,20 @@ logger.info(f'CONSOLIDATE_JSON_FOLDER path: {CONSOLIDATE_JSON_FOLDER}')
 ###################################
 dir_list = os.listdir(CONSOLIDATE_JSON_FOLDER)
 dir_list.sort(reverse=False, key=lambda x: int(x.split('_')[-1].split('.')[0]))
-logger.info(f'CONSOLIDATE_JSON list: {dir_list}')
+pattern = re.compile(r'^consolidate_json_([1-9]\d*|[0-9]\d{2,})\.json')
+dir_list = [filename for filename in dir_list if pattern.match(filename)]
+
+# ###################################
+# dir_list_comp = os.listdir(COMPLETE_JSON_FOLDER)
+# dir_list_comp.sort(reverse=False, key=lambda x: int(x.split('_')[-1].split('.')[0]))
+# pattern = re.compile(r'^complete_json_\d{6}_\d{8}_\d{6}\.jsonl$')
+# dir_list_comp = [filename for filename in dir_list_comp if pattern.match(filename)]
+
+# ###################################
+# if dir_list_comp:
+#     dir_list = dir_list + dir_list_comp
+#     dir_list.sort(reverse=True)
+#     del dir_list_comp
 
 ###################################
 
@@ -128,14 +141,12 @@ def main_process():
 ###################################
 if __name__ == "__main__":
 
-
-    # Filter the list using the pattern
-    pattern = re.compile(r'consolidate_json_([1-9]\d*|[0-9]\d{2,})\.json')
-    dir_list = [filename for filename in dir_list if pattern.match(filename)]
+    logger.info(f'Total JSON files to process: {dir_list}')
+    main_process()
 
     # Find the index of the starting file
     # start_file = 'consolidate_json_11.json'
     # start_index = dir_list.index(start_file)
     # dir_list = dir_list[start_index:]
 
-    main_process()
+
