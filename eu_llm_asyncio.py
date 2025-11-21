@@ -10,7 +10,7 @@ from datetime import datetime
 from sentence_transformers import SentenceTransformer
 
 from src.prompts.prompt_taxes import tax_prompts
-from src.utils.text_splitter import process_cut_text
+from src.utils.text_splitter import process_cut_text, text_splitting, split_text_by_header_regex
 import src.utils.logger as logger_utils
 from dotenv import load_dotenv
 load_dotenv()
@@ -34,8 +34,8 @@ query_sql = sql.SQL("""SELECT
                     AND kategoria_informacji = 1
                     AND szablonid IN (1,2)
                     AND EXISTS(SELECT 1 FROM public.interpretacje_podobne AS tb WHERE ta.id_informacji = tb.id_informacji_powiazane)
-                ORDER BY id_informacji DESC
-                LIMIT 100""")
+                ORDER BY id_informacji
+                LIMIT 5""")
 
 
 
@@ -44,18 +44,21 @@ async def fetch_batch(prompt: str, questions: List[str], model_name: str, retrie
     #prompt = """Jesteś ekspertem podatkowym w {type_tax}. Wnioskodawca wprowadził tekst: {text}.\nOdpowiedz na pytania do tekstu jasno i zrozumiale:\n"""
     for i, q in enumerate(questions, start=1):
         prompt += f"{i}. {q}\n"
+    print(prompt)
 
     for attempt in range(retries):
         try:
-            response = ollama.chat(model=model_name, messages=[{"role": "user", "content": prompt}], options={"temperature": 0.3})
+            response = ollama.chat(model=model_name, messages=[{"role": "user", "content": prompt}], options={"temperature": 0.2})
             if not response or "message" not in response or "content" not in response["message"]:
                 raise ValueError("Invalid response format")
-
-            raw_text = response["message"]["content"].strip()
+            print(response["message"])
+            raw_text = response["message"]["content"].strip("\n")
             print(raw_text)
             answers = [ans.strip() for ans in raw_text.split("\n") if ans.strip()]
-            # while len(answers) < len(questions):
-            #     answers.append("")
+            print(f"Extracted {len(answers)} answers from response.")
+            #print(answers)
+            while len(answers) < len(questions):
+                answers.append("")
             del response, prompt
             return answers[:len(questions)]
 
@@ -86,8 +89,11 @@ async def process_questions(
     results = {}
     try:
         answers = await fetch_batch(prompt, questions, model_name)
+        logger.info(f"Processing {len(answers)} answers completed.")
         embeddings = await async_embed(answers, embedder)
+        logger.info(f"Processing {len(embeddings)} embeddings completed.")
         for q, ans, emb in zip(questions, answers, embeddings):
+            #print(f"Q: {q}\nA: {ans}\nEmbedding snippet: {emb[:5]}...\n{'-'*40}")
             results[q] = {"answer": ans, "embedding": emb}
         return results
     except Exception as e:
@@ -120,17 +126,24 @@ async def stream_texts_to_llm_async(query: str,
                 for id_info, tax_type, text in zip(id_infos,tax_types,texts):
                     for attempt in range(1, max_retries_sql + 1):
                         try:
-                            prompt_tax, questions_tax = tax_prompts(tax_type=tax_type, user_text=text)
-                            print("=" * 50)
-                            print(f"Processing id_info: {id_info} | tax_type: {tax_type} | length: {len(text)} | text snippet: {text[:100]}")
-                            print("\n" + "=" * 50)
-                            results = await process_questions(
-                                prompt=prompt_tax,
-                                questions=questions_tax,
-                                model_name=model_name,
-                                embedding_model=embedding_model
-                                )
-                            print(results)
+                            text = split_text_by_header_regex(text=text)
+                            results_splits = text_splitting(text=text, chunk_sizes= [800], chunk_overlaps=[200])
+                            if results_splits:
+                                first_key = list(results_splits.keys())[0]
+                                print(f"\nSample result for '{first_key}':")
+                                for i, text in enumerate(results_splits[first_key][:2]): # Show first 2 chunks
+                                    print(f"  Chunk {i+1}: '{text[:1000]}...'")
+                                    prompt_tax, questions_tax = tax_prompts(tax_type=tax_type, user_text=text)
+                                    print("=" * 50)
+                                    print(f"Processing id_info: {id_info} | tax_type: {tax_type} | length: {len(text)} | text snippet: {text[:100]}")
+                                    print("\n" + "=" * 50)
+                                    results = await process_questions(
+                                        prompt=prompt_tax,
+                                        questions=questions_tax,
+                                        model_name=model_name,
+                                        embedding_model=embedding_model
+                                        )
+                                    #print(results)
                             #await save_to_postgres(results, conn_str=conn)
                             break
                         except Exception as e:
