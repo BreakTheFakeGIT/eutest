@@ -5,7 +5,7 @@ from langchain.text_splitter import (
     RecursiveCharacterTextSplitter,
     TextSplitter,
 )
-from src.utils.text_process import TextEuJson
+from src.utils.text_process import TextEuJson, TextCleaner
 import src.utils.logger as logger_utils
 from dotenv import load_dotenv
 load_dotenv()
@@ -15,6 +15,42 @@ load_dotenv()
 logger = logger_utils.setup_logger(name=f'eu_text_splitter')
 
 ###################################
+def split_text_by_header(text: str) -> str:
+    """
+    Split text into chunk using header
+    """
+    text_lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    HEADER_PATTERN = r'([A-ZŚĆŻŹŃŁÓĘĄ][^\n]*[^\.\?!:;]\s*)$'
+    chunks_content = []
+    current_chunk = []
+    is_initial_header_gathering = True
+
+    for i, line in enumerate(text_lines):
+        is_header = re.search(HEADER_PATTERN, line)
+        if is_initial_header_gathering:
+            if is_header:
+                current_chunk.append(line)
+            else:
+                is_initial_header_gathering = False
+                current_chunk.append(line)
+            continue
+
+        if is_header:
+            if current_chunk:
+                chunks_content.append(' '.join(current_chunk))
+                current_chunk = []
+            current_chunk.append(line)
+        else:
+            current_chunk.append(line)
+
+    if current_chunk:
+        chunks_content.append(' '.join(current_chunk))
+
+    return ' \n\n '.join(chunks_content)
+
+
+
 def cut_text_word(text: str, pattern: str) -> str:
     """ Function """
     try:
@@ -82,86 +118,22 @@ def process_cut_text(text: str) -> str:
     try:
         text = cut_text_start_by_regex(text)
         text = cut_text_by_regex(text)
+        text = split_text_by_header(text)
         return text
     except Exception as e:
         raise logger.error("Invalid mode. cut_text_start_by_regex or cut_text_by_regex".format(e))
 
 
-
-def split_text_by_header_regex(text: str) -> str:
-    """
-    Split text into chunk using header
-    """
-    text_lines = [line.strip() for line in text.splitlines() if line.strip()]
-
-    HEADER_PATTERN = r'([A-ZŚĆŻŹŃŁÓĘĄ][^\n]*[^\.\?!:;]\s*)$'
-    chunks_content = []
-    current_chunk = []
-    is_initial_header_gathering = True
-
-    for i, line in enumerate(text_lines):
-        is_header = re.search(HEADER_PATTERN, line)
-        if is_initial_header_gathering:
-            if is_header:
-                current_chunk.append(line)
-            else:
-                is_initial_header_gathering = False
-                current_chunk.append(line)
-            continue
-
-        if is_header:
-            if current_chunk:
-                chunks_content.append(' '.join(current_chunk))
-                current_chunk = []
-            current_chunk.append(line)
-        else:
-            current_chunk.append(line)
-
-
-    if current_chunk:
-        chunks_content.append(' '.join(current_chunk))
-
-    return ' \n\n '.join(chunks_content)
-
-def reconstruct_text(text: str, pattern: str, custom_separator: str) -> str:
-    """
-    Reconstruct text
-    """
-    # Reconstruct text with separator
-    parts = re.split(pattern, text)
-    reconstructed_text = ""
-    for i in range(0, len(parts) - 1, 2):
-        sentence = parts[i]
-        whitespace = parts[i + 1]
-        reconstructed_text += sentence + whitespace + custom_separator
-    # Add the last sentence if it exists
-    if len(parts) % 2 != 0:
-        reconstructed_text += parts[-1]
-
-    # Remove trailing separator if needed
-    text = reconstructed_text.strip(custom_separator)
-    return text
-
-def remove_custom_sequence(text: str, separator: str) -> str:
-    """
-    Removes sequences like sep +  + sep from the text.
-    """
-    escaped_sep = re.escape(separator)
-    pattern = rf"{escaped_sep}[\s\d\.:;?!,]*{escaped_sep}"
-    cleaned_text = re.sub(pattern, separator, text)
-    return cleaned_text
-
 def text_splitting(
     text: str,
-    chunk_sizes: List[int],
-    chunk_overlaps: List[int],
-    splitter_class: Type[TextSplitter] = RecursiveCharacterTextSplitter,
+    chunk_sizes: List[int] | int,
+    chunk_overlaps: List[int] | int,
 ) -> Dict[str, List[str]]:
     """
     Splits text into chunks using different parameters and allows filtering.
     """
     results = {}
-    logger.info(f"Starting Splitting Experiments on {splitter_class.__name__}")
+    logger.info(f"Starting Splitting Experiments on {RecursiveCharacterTextSplitter.__name__}")
     chunk_sizes_overlaps = list(product(chunk_sizes,chunk_overlaps, repeat=1))
 
     for size_overlap in chunk_sizes_overlaps:
@@ -172,13 +144,13 @@ def text_splitting(
             continue
 
         experiment_key = f"size_{size}_overlap_{overlap}"
-        logger.info(f"\n=> Running experiment: {experiment_key}")
+        #logger.info(f"\n=> Running experiment: {experiment_key}")
 
 
         # Initialize the specified text splitter
         try:
-            text_splitter = splitter_class(
-                chunk_size=size, chunk_overlap=overlap, separators = ['\n\n']
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=size, chunk_overlap=overlap, separators = ["\n\n"]
             )
         except Exception as e:
             logger.info(f"Error initializing splitter for {experiment_key}: {e}")
@@ -186,8 +158,9 @@ def text_splitting(
 
         # Split the text into chunks
         all_chunks = text_splitter.split_text(text)
-        all_chunks = [TextEuJson(chunk).process().to_string() for chunk in all_chunks if len(chunk.strip()) > 50]
+        all_chunks = [TextEuJson(chunk).process().to_string() for chunk in all_chunks]
+        all_chunks = [TextCleaner(chunk).process().to_string() for chunk in all_chunks]
         results[experiment_key] = all_chunks
-        logger.info(f"Chunks after: {len(all_chunks)}")
+        #logger.info(f"Chunks after: {len(all_chunks)}")
 
     return results

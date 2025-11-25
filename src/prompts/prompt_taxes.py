@@ -1,8 +1,7 @@
 from typing import Tuple, List
 
 # ---------- MAIN----------
-prompt_main = """\n\nOdpowiedz na pytania krótko.\nNie stosuj zaprzeczeń.\nJeśli nie znasz odpowiedzi, napisz: "Brak informacji".
-Oto treść:\n\n {user_text}.\n\n """
+prompt_main = """Odpowiadaj krótko, rzeczowo i po polsku"""
 questions_main = [
     "Wskaż 10 słów kluczowych?",
     "Wskaż rodzaj podatku?",
@@ -284,11 +283,12 @@ TAX_PROMPTS = {'vat': PROMPT_VAT,
                 'inne': PROMPT_INNE
                         }
 
-def tax_prompts(tax_type: str,user_text: str) -> Tuple[str,List[str]]:
+def tax_prompts(tax_type: str) -> Tuple[str,List[str]]:
     prompt_template = TAX_PROMPTS.get(tax_type, TAX_PROMPTS["inne"])
     questions = prompt_template.get('questions', [])
     prompt = prompt_template.get('prompt', [])
-    return prompt.format(user_text=user_text), questions
+    return prompt, questions
+
 
 if __name__ == "__main__":
     pass

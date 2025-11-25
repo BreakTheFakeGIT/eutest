@@ -53,10 +53,10 @@ RANGE_ID = range_id_infromacji(logger, TBL_INTERP, POSTGRES_DSN)
 BASE_URL = 'https://eureka.mf.gov.pl/api/public/v1/informacje'
 
 # The number of JSON records to store in a single output file.
-RECORDS_PER_FILE = 100
+RECORDS_PER_FILE = 1000
 
 # The delay in seconds between each download request.
-REQUEST_DELAY_SECONDS = 0.2
+REQUEST_DELAY_SECONDS = 0.1
 
 # The directory where the output files will be saved.
 #OUTPUT_DIR = "/dane/eutest/data/complete_json/"
