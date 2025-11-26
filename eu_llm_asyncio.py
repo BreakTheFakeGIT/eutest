@@ -231,7 +231,7 @@ async def insert_qa_result(conn: psycopg.AsyncConnection,
 # Insert answer embedding
 # -----------------------------
 
-async def insert2_answer_embedding768(conn: psycopg.AsyncConnection,
+async def insert_answer_embedding768(conn: psycopg.AsyncConnection,
                                   tax_type: str,
                                   tax_id: int,
                                   topic: str,
@@ -244,10 +244,9 @@ async def insert2_answer_embedding768(conn: psycopg.AsyncConnection,
                                   ) -> int:
     sql = """
     INSERT INTO odp_embedding768 (typ_podatku, id_informacji, teza, sygnatura, data_wydania, slowa_kluczowe, prompt_odp_id, model_embedding, embedding)
-    VALUES (%s, %s, %s, %s,%s, %s, %s, %s, %s, %s::vector)
-    RETURNING id
+    VALUES (%s, %s, %s,%s, %s, %s, %s, %s, %s::vector)
     """
-    #embedding = to_pgvector_literal(embedding)
+    embedding = to_pgvector_literal(embedding)
     try:
         async with conn.cursor() as cur:
             await cur.execute(sql, (tax_type, tax_id, topic, signature, release_date, keywords, qa_result_id, model_embedding, embedding))
@@ -257,25 +256,25 @@ async def insert2_answer_embedding768(conn: psycopg.AsyncConnection,
 
 
 
-async def insert_answer_embedding768(conn: psycopg.AsyncConnection,
-                                  tax_type: str,
-                                  tax_id: int,
-                                  qa_result_id: int,
-                                  model_embedding: str,
-                                  embedding: List[float]
-                                  ) -> int:
-    sql = """
-    INSERT INTO odp_embedding768 (typ_podatku, id_informacji, prompt_odp_id, model_embedding, embedding)
-    VALUES (%s, %s, %s, %s, %s::vector)
-    RETURNING id
-    """
-    embedding = to_pgvector_literal(embedding)
-    try:
-        async with conn.cursor() as cur:
-            await cur.execute(sql, (tax_type, tax_id, qa_result_id, model_embedding, embedding))
-    except Exception as e:
-        logger.error(f"Error inserting answer embedding768 for qa_result_id={qa_result_id}, tax_type={tax_type}, tax_id={tax_id}, model_embedding={model_embedding}, em: {e}")
-        raise
+# async def insert_answer_embedding768(conn: psycopg.AsyncConnection,
+#                                   tax_type: str,
+#                                   tax_id: int,
+#                                   qa_result_id: int,
+#                                   model_embedding: str,
+#                                   embedding: List[float]
+#                                   ) -> int:
+#     sql = """
+#     INSERT INTO odp_embedding768 (typ_podatku, id_informacji, prompt_odp_id, model_embedding, embedding)
+#     VALUES (%s, %s, %s, %s, %s::vector)
+#     RETURNING id
+#     """
+#     embedding = to_pgvector_literal(embedding)
+#     try:
+#         async with conn.cursor() as cur:
+#             await cur.execute(sql, (tax_type, tax_id, qa_result_id, model_embedding, embedding))
+#     except Exception as e:
+#         logger.error(f"Error inserting answer embedding768 for qa_result_id={qa_result_id}, tax_type={tax_type}, tax_id={tax_id}, model_embedding={model_embedding}, em: {e}")
+#         raise
 
 
 
@@ -361,6 +360,8 @@ class TaxRAGPipeline:
                         async def one_call(chunk_id=chunk_id, prompt_tax=prompt_tax, chunk_text=chunk_text, q=q, model_name=model_name):
                             async with self.llm_sem:
                                 answer, latency_ms = await self.llm_answer(model_name=model_name, prompt_tax=prompt_tax, context=chunk_text, question=q)
+                                if not answer or answer.strip().lower() in ('brak informacji', 'nie dotyczy'):
+                                    return 0  # Skip empty answers
                             # 6a) Save QA result
                             print(answer)
                             qa_id = await insert_qa_result(conn,
@@ -377,13 +378,10 @@ class TaxRAGPipeline:
                                                             question_len=len(q),
                                                             answer_len= len(answer)
                                                             )
-                            if qa_id is None:
-                                return 0  # Skip if QA insert failed
                             print(f"Inserted QA result id={qa_id} for text_id={text_id}, tax_type={tax_type}, model={model_name}, chunk_id={chunk_id}.")
 
                             # 4b/6b) Vectorize answer + save embedding
-                            if not answer or answer.strip().lower() in ('brak informacji', 'nie dotyczy'):
-                                return 0  # Skip empty answers
+
 
                             # if not key_words:
                             #     return 0  # Skip if no keywords
