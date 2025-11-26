@@ -48,17 +48,18 @@ POOL_MAX = 10
 
 
 #model=f"{PATH_MODELS}/{name}"
-T_EMBED_MODELS = [("sdads/st-polish-paraphrase-from-mpnet",768)]
+T_EMBED_MODELS = [("sdadas/st-polish-paraphrase-from-mpnet",768)]
 T_EMBED_DIM = [("sentence-transformers/paraphrase-multilingual-mpnet-base-v2",768)]
 T_EMBED_DIM = [("sentence-transformers/paraphrase-multilingual-mpnet-base-v2",768)]
-EMBED_MODELS = ["sdads/st-polish-paraphrase-from-mpnet","all-MiniLM-L6-v2"]
+EMBED_MODELS = ["sdadas/st-polish-paraphrase-from-mpnet","all-MiniLM-L6-v2"]
 
 
 
 # LLM models available in Ollama (ensure they are pulled locally)
 LLM_MODELS = ["hf.co/NikolayKozloff/Llama-PLLuM-8B-instruct-Q8_0-GGUF:Q8_0", "hf.co/second-state/Bielik-4.5B-v3.0-Instruct-GGUF:Q8_0"]  # rename to your local tags if needed
 
-MODELS = list(product(LLM_MODELS,T_EMBED_MODELS, repeat=1))
+#MODELS = list(product(LLM_MODELS,T_EMBED_MODELS, repeat=1))
+MODELS = LLM_MODELS
 #MODELS = [(x, y, z) for x, (y, z) in MODELS]
 
 # Concurrency controls
@@ -76,7 +77,8 @@ query_sql = """SELECT
         CAST(dt_wyd AS date) dt_wyd,
         syg,
         teza,
-        slowa_kluczowe_wartosc_eu
+        slowa_kluczowe_wartosc_eu,
+        wartosc_eu
     FROM public.interpretacje AS ta
     WHERE 1=1
         AND kategoria_informacji = 1
@@ -115,7 +117,9 @@ def add_text_to_list(words, prefix="", suffix=""):
     """Adds a prefix and suffix to each word in the list. """
     return [f"{prefix}{word}{suffix}" for word in words]
 
-
+def generate_combinations(questions: List[str], models: List[str]) -> List[Tuple]:
+    """ Generate all combinations of questions and models with repeat=1."""
+    return list(product(questions, models, repeat=1))
 
 # -----------------------------
 # Prompt template for LLMs
@@ -125,7 +129,7 @@ QA_PROMPT = ChatPromptTemplate.from_messages([
     ("user",
      "Fragment tekstu:\n{context}\n\n"
      "Pytanie:\n{question}\n\n"
-     "Podaj tylko odpowiedź krótko i zwieźle. Jeśli nie znasz odpowiedzi, napisz krótko: 'Brak informacji'"
+     "Podaj tylko odpowiedz krótko i zwieźle. Jeśli nie znasz odpowiedzi, napisz : 'brak informacji'"
     ),
 ])
 
@@ -145,12 +149,10 @@ class AsyncEmbeddingManager:
         }
 
     async def embed(self, model_name: str, text: Union[str, List[str]]) -> List[List[float]]:
-        """
-        Async embedding for a single model.
-        """
+        """ Async embedding for a single model."""
         if model_name not in self.models:
             raise ValueError(f"Model '{model_name}' not loaded. Available: {list(self.models.keys())}")
-        
+
         loop = asyncio.get_event_loop()
         embeddings = await loop.run_in_executor(None, self.models[model_name].encode, text)
         return embeddings.tolist() if isinstance(embeddings, list) else [embeddings.tolist()]
@@ -212,28 +214,70 @@ async def insert_qa_result(conn: psycopg.AsyncConnection,
                            answer_len: int = 0
                            ) -> int:
     sql = """
-    INSERT INTO pytodp_wyniki (typ_podatku, id_informacji, fragment, pytanie, odpowiedz, model_llm, fragment_id, eksperyment_klucz, opoznienie_ms, fragment_dlg, pytanie_dlg, odpowiedz_dlg)
+    INSERT INTO prompt_odp (typ_podatku, id_informacji, fragment, pytanie, odpowiedz, model_llm, fragment_id, eksperyment_klucz, opoznienie_ms, fragment_dlg, pytanie_dlg, odpowiedz_dlg)
     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     RETURNING id
     """
-    async with conn.cursor() as cur:
-        await cur.execute(sql, (tax_type, text_id, chunk_text_, question, answer, model_name, chunk_id, experiment_key, latency_ms, chunk_text_len, question_len, answer_len))
-        new_id = (await cur.fetchone())[0]
-        return new_id
+    try: 
+        async with conn.cursor() as cur:
+            await cur.execute(sql, (tax_type, text_id, chunk_text_, question, answer, model_name, chunk_id, experiment_key, latency_ms, chunk_text_len, question_len, answer_len))
+            new_id = (await cur.fetchone())[0]
+            return new_id
+    except Exception as e:
+        logger.error(f"Error inserting QA result for text_id={text_id}, tax_type={tax_type}, model={model_name}, chunk_id={chunk_id}: {e}")        
+        raise
 
 # -----------------------------
 # Insert answer embedding
 # -----------------------------
 
-async def insert_answer_embedding(conn: psycopg.AsyncConnection,
-                                  qa_result_id: int, tax_type: str, vec: List[float]) -> None:
+async def insert2_answer_embedding768(conn: psycopg.AsyncConnection,
+                                  tax_type: str,
+                                  tax_id: int,
+                                  topic: str,
+                                  signature: str,
+                                  release_date: datetime,
+                                  keywords: List[str],
+                                  qa_result_id: int,
+                                  model_embedding: str,
+                                  embedding: List[float]
+                                  ) -> int:
     sql = """
-    INSERT INTO answer_embeddings (qa_result_id, tax_type, embedding)
-    VALUES (%s, %s, %s::vector)
+    INSERT INTO odp_embedding768 (typ_podatku, id_informacji, teza, sygnatura, data_wydania, slowa_kluczowe, prompt_odp_id, model_embedding, embedding)
+    VALUES (%s, %s, %s, %s,%s, %s, %s, %s, %s, %s::vector)
+    RETURNING id
     """
-    literal = to_pgvector_literal(vec)
-    async with conn.cursor() as cur:
-        await cur.execute(sql, (qa_result_id, tax_type, literal))
+    #embedding = to_pgvector_literal(embedding)
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(sql, (tax_type, tax_id, topic, signature, release_date, keywords, qa_result_id, model_embedding, embedding))
+    except Exception as e:
+        logger.error(f"Error inserting answer embedding768 for qa_result_id={qa_result_id}, tax_type={tax_type}, tax_id={tax_id}, model_embedding={model_embedding}, em: {e}")
+        raise
+
+
+
+async def insert_answer_embedding768(conn: psycopg.AsyncConnection,
+                                  tax_type: str,
+                                  tax_id: int,
+                                  qa_result_id: int,
+                                  model_embedding: str,
+                                  embedding: List[float]
+                                  ) -> int:
+    sql = """
+    INSERT INTO odp_embedding768 (typ_podatku, id_informacji, prompt_odp_id, model_embedding, embedding)
+    VALUES (%s, %s, %s, %s, %s::vector)
+    RETURNING id
+    """
+    embedding = to_pgvector_literal(embedding)
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(sql, (tax_type, tax_id, qa_result_id, model_embedding, embedding))
+    except Exception as e:
+        logger.error(f"Error inserting answer embedding768 for qa_result_id={qa_result_id}, tax_type={tax_type}, tax_id={tax_id}, model_embedding={model_embedding}, em: {e}")
+        raise
+
+
 
 
 # -----------------------------
@@ -281,10 +325,12 @@ class TaxRAGPipeline:
         text_id = context_row["id_informacji"]
         tax_type = context_row["typ_podatku"]
         body = context_row["tresc_interesariusz"]
-        #dt_w = context_row["dt_wyd"]
-        #syg = context_row["syg"]
-        #topic = context_row["teza"]
 
+        # 1) Clean text
+        # t_clean_start = time.perf_counter()
+        # body = TextEuJson(text=body).process().to_string()
+        # body = TextCleaner(text=body).process().to_string()
+        # timings["czyszczenie_s"] = time.perf_counter() - t_clean_start
         # 3) Chunking
         t_chunk_start = time.perf_counter()
         chunks = process_chunk_text(body)
@@ -296,11 +342,13 @@ class TaxRAGPipeline:
         key_words = context_row["slowa_kluczowe_wartosc_eu"]
         print(key_words)
         prompt_tax, questions = tax_prompts(tax_type=tax_type)
+        print(prompt_tax)
+        print(questions)
         if key_words:
             q0 = add_text_to_list(words=key_words, prefix='Do podanego słowa: ', suffix=', wybierz najlepiej dopasowane zdanie z tekstu?')
-            questions = q0 + questions
+            print(q0)
+        #     questions = q0 + questions
 
-        ask_llm_embed = list(product(questions, MODELS, repeat=1))
         results_count = 0
         # Pre-open a DB connection for this context to amortize
         async with await psycopg.AsyncConnection.connect(PG_CONN_STR) as conn:
@@ -308,17 +356,15 @@ class TaxRAGPipeline:
             tasks = []
             for experiment_key in chunks.keys():
                 for chunk_id, chunk_text in enumerate(chunks[experiment_key]):
-                    for q, model in ask_llm_embed:
-                        model_name, embed = model
-                        emb_nm, emb_dim = embed
-                        #print(f"Processing text_id={text_id} | tax_type={tax_type} | experiment_key={experiment_key} | chunk_id={chunk_id} | chunk_len={len(chunk_text_)} | model={model_name} | embed_name={emb_nm} | embed_dim={emb_dim} | question={q[:30]}...")
+                    for q, model_name in generate_combinations(questions=questions, models=MODELS):
                         # Limit parallelism
-                        async def one_call(chunk_id=chunk_id, prompt_tax=prompt_tax, chunk_text_=chunk_text, q=q, model_name=model_name):
+                        async def one_call(chunk_id=chunk_id, prompt_tax=prompt_tax, chunk_text=chunk_text, q=q, model_name=model_name):
                             async with self.llm_sem:
                                 answer, latency_ms = await self.llm_answer(model_name=model_name, prompt_tax=prompt_tax, context=chunk_text, question=q)
                             # 6a) Save QA result
                             print(answer)
-                            qa_id = await insert_qa_result(conn, tax_type=tax_type,
+                            qa_id = await insert_qa_result(conn,
+                                                            tax_type=tax_type,
                                                             text_id=text_id,
                                                             chunk_text_=chunk_text,
                                                             question=q,
@@ -330,16 +376,53 @@ class TaxRAGPipeline:
                                                             chunk_text_len=len(chunk_text),
                                                             question_len=len(q),
                                                             answer_len= len(answer)
-                                                                )
+                                                            )
+                            if qa_id is None:
+                                return 0  # Skip if QA insert failed
+                            print(f"Inserted QA result id={qa_id} for text_id={text_id}, tax_type={tax_type}, model={model_name}, chunk_id={chunk_id}.")
 
                             # 4b/6b) Vectorize answer + save embedding
-                            vec = await self.asyncembeddingmanager.embed(model_name=emb_nm, text=answer)
-                            print(f"Embedding vector snippet: {vec[0][:5]}...")
+                            if not answer or answer.strip().lower() in ('brak informacji', 'nie dotyczy'):
+                                return 0  # Skip empty answers
 
-                            vec = await self.asyncembeddingmanager.embed_all(model_name=emb_nm, text=answer)
-                            print(f"Embedding vector snippet: {vec[0][:5]}...")
-                            # vec = await self.embed_answer(answer)
-                            # await insert_answer_embedding(conn, qa_id, tax_type, vec)
+                            # if not key_words:
+                            #     return 0  # Skip if no keywords
+                            # if len(answer) < 10:
+                            #     return 0  # Skip very short answers
+                            # if len(answer) > 1000:
+                            #     return 0  # Skip very long answers
+                            # if len(answer.split()) < 3:
+                            #     return 0  # Skip very short answers
+
+                            list_models = self.asyncembeddingmanager.list_models()
+                            vec = await self.asyncembeddingmanager.embed(model_name=list_models[0], text=answer)
+                            # vec_id = await insert_answer_embedding768(conn,
+                            #       tax_type=tax_type,
+                            #       tax_id=text_id,
+                            #       qa_result_id=qa_id,
+                            #       model_embedding= list_models[0],
+                            #       embedding=vec[0]
+                            #       )
+                            vec_id = await insert_answer_embedding768(conn,
+                                  tax_type=tax_type,
+                                  tax_id=text_id,
+                                  topic=context_row["teza"],
+                                  signature=context_row["syg"],
+                                  release_date=context_row["dt_wyd"],
+                                  keywords=key_words,
+                                  qa_result_id=qa_id,
+                                  model_embedding= list_models[0],
+                                  embedding=vec[0]
+                                  )
+                            print (f"QA Result ID: {vec_id}")
+                            #print(f"Embedding vector snippet: {vec[0][:5]}...")
+
+                            #vec2 = await self.asyncembeddingmanager.embed_all(text=answer)
+                            #print(f"All embeddings keys: {list(vec2.keys())}")
+                            #print(f"Embedding vector snippet all models: {vec2[list_models[0]][0][:5]}...")
+                            
+                            #await insert_answer_embedding(conn, qa_id, tax_type, vec)
+
                             return 1
                         tasks.append(one_call())
 
@@ -433,7 +516,10 @@ if __name__ == "__main__":
     asyncio.run(main())
 
 
-
+                        #model_name, embed = model
+                        #emb_nm, emb_dim = embed
+                        #print(f"Processing text_id={text_id} | tax_type={tax_type} | experiment_key={experiment_key} | chunk_id={chunk_id} | chunk_len={len(chunk_text_)} | model={model_name} | embed_name={emb_nm} | embed_dim={emb_dim} | question={q[:30]}...")
+                        # Limit parallelism
 # # ---------- Ollama Batch Fetch ----------
 # async def fetch_batch(prompt: str, questions: List[str], model_name: str, retries=3, backoff_factor=2) -> List[str]:
 #     #prompt = """Jesteś ekspertem podatkowym w {type_tax}. Wnioskodawca wprowadził tekst: {text}.\nOdpowiedz na pytania do tekstu jasno i zrozumiale:\n"""
