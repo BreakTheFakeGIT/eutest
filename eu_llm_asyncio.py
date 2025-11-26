@@ -3,9 +3,11 @@ import argparse
 import asyncio
 import time
 from datetime import datetime
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Union, Optional
 import json
 import os
+import torch
+
 
 #import ollama
 import psycopg
@@ -28,8 +30,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+
+
+
 # ---------- Logging Setup ----------
 logger = logger_utils.setup_logger(name="eu_llm_asyncio")
+
 
 # -----------------------------
 # Configuration
@@ -40,19 +46,26 @@ PATH_MODELS = os.environ.get("MODELS_HF")
 POOL_MIN = 1
 POOL_MAX = 10
 
-# Choose a strong multilingual embedding for Polish
-EMBED_MODELS = [("sentence-transformers/paraphrase-multilingual-mpnet-base-v2",768)]
+
+#model=f"{PATH_MODELS}/{name}"
+T_EMBED_MODELS = [("sdads/st-polish-paraphrase-from-mpnet",768)]
+T_EMBED_DIM = [("sentence-transformers/paraphrase-multilingual-mpnet-base-v2",768)]
+T_EMBED_DIM = [("sentence-transformers/paraphrase-multilingual-mpnet-base-v2",768)]
+EMBED_MODELS = ["sdads/st-polish-paraphrase-from-mpnet","all-MiniLM-L6-v2"]
+
+
+
 # LLM models available in Ollama (ensure they are pulled locally)
 LLM_MODELS = ["hf.co/NikolayKozloff/Llama-PLLuM-8B-instruct-Q8_0-GGUF:Q8_0", "hf.co/second-state/Bielik-4.5B-v3.0-Instruct-GGUF:Q8_0"]  # rename to your local tags if needed
 
-MODELS = list(product(LLM_MODELS, EMBED_MODELS, repeat=1))
+MODELS = list(product(LLM_MODELS,T_EMBED_MODELS, repeat=1))
 #MODELS = [(x, y, z) for x, (y, z) in MODELS]
 
 # Concurrency controls
 MAX_PARALLEL_LLM_CALLS = 6   # tune per machine
 MAX_PARALLEL_DB_WRITES = 10
 
-
+#f"{PATH_MODELS}/sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
 # -----------------------------
 # SQL Query
 # -----------------------------
@@ -95,7 +108,14 @@ def to_pgvector_literal(vec: List[float]) -> str:
     return "[" + ",".join(f"{x:.8f}" for x in vec) + "]"
 
 def now_ms() -> int:
+    """Return current time in milliseconds."""
     return int(time.perf_counter() * 1000)
+
+def add_text_to_list(words, prefix="", suffix=""):
+    """Adds a prefix and suffix to each word in the list. """
+    return [f"{prefix}{word}{suffix}" for word in words]
+
+
 
 # -----------------------------
 # Prompt template for LLMs
@@ -103,24 +123,69 @@ def now_ms() -> int:
 QA_PROMPT = ChatPromptTemplate.from_messages([
     ("system", "{prompt_tax}"),
     ("user",
-     "Fragment tekstu (wniosku):\n{context}\n\n"
+     "Fragment tekstu:\n{context}\n\n"
      "Pytanie:\n{question}\n\n"
-     "Podaj odpowiedź krótko. Jeśli nie znasz odpowiedzi, napisz krótko: 'Brak informacji'"
+     "Podaj tylko odpowiedź krótko i zwieźle. Jeśli nie znasz odpowiedzi, napisz krótko: 'Brak informacji'"
     ),
 ])
+
+# -----------------------------
+# Async Embedding Manager
+# -----------------------------
+
+class AsyncEmbeddingManager:
+    def __init__(self, model_names: List[str]):
+        """
+        Initialize multiple SentenceTransformer models.
+        Automatically uses GPU if available.
+        """
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.models: Dict[str, SentenceTransformer] = {
+            name: SentenceTransformer(name, device=self.device) for name in model_names
+        }
+
+    async def embed(self, model_name: str, text: Union[str, List[str]]) -> List[List[float]]:
+        """
+        Async embedding for a single model.
+        """
+        if model_name not in self.models:
+            raise ValueError(f"Model '{model_name}' not loaded. Available: {list(self.models.keys())}")
+        
+        loop = asyncio.get_event_loop()
+        embeddings = await loop.run_in_executor(None, self.models[model_name].encode, text)
+        return embeddings.tolist() if isinstance(embeddings, list) else [embeddings.tolist()]
+
+    async def embed_all(self, text: Union[str, List[str]]) -> Dict[str, List[List[float]]]:
+        """
+        Embed text using all models concurrently.
+        Returns a dict: {model_name: embeddings}
+        """
+        tasks = [self.embed(name, text) for name in self.models.keys()]
+        results = await asyncio.gather(*tasks)
+        return dict(zip(self.models.keys(), results))
+
+    def list_models(self) -> List[str]:
+        """Return names of all loaded models."""
+        return list(self.models.keys())
+
+
+# -----------------------------
+# LLM Clients
+# -----------------------------
 
 def build_llms() -> Dict[str, ChatOllama]:
     """Return LLM clients for Ollama models; synchronous clients wrapped later."""
     return {name: ChatOllama(model=name, temperature=0.0) for name in LLM_MODELS}
 
-def build_embed() -> Dict[str, SentenceTransformer]:
-    """Return LLM clients for Ollama models; synchronous clients wrapped later."""
-    return {name: SentenceTransformer(model=name, device="cuda") for name in EMBED_MODELS}
-
-
 # -----------------------------
 # Chunking
 # -----------------------------
+
+def process_topic_text(text: str) -> str:
+    text = TextEuJson(text=text).process().to_string()
+    text = TextCleaner(text=text).process().to_string()
+    return text
+
 def process_chunk_text(text: str,
                chunk_size: List[int] = [2000],
                chunk_overlap: List[int] = [1000]) -> List[str]:
@@ -128,13 +193,9 @@ def process_chunk_text(text: str,
     results = text_splitting(text=text, chunk_sizes= chunk_size, chunk_overlaps=chunk_overlap)
     return results
 
-def process_topic_text(text: str) -> str:
-    text = TextEuJson(text=text).process().to_string()
-    text = TextCleaner(text=text).process().to_string()
-    return text
-
-
-
+# -----------------------------
+# PostgreSQL Inserts
+# -----------------------------
 
 async def insert_qa_result(conn: psycopg.AsyncConnection,
                            text_id: int,
@@ -160,6 +221,9 @@ async def insert_qa_result(conn: psycopg.AsyncConnection,
         new_id = (await cur.fetchone())[0]
         return new_id
 
+# -----------------------------
+# Insert answer embedding
+# -----------------------------
 
 async def insert_answer_embedding(conn: psycopg.AsyncConnection,
                                   qa_result_id: int, tax_type: str, vec: List[float]) -> None:
@@ -171,13 +235,15 @@ async def insert_answer_embedding(conn: psycopg.AsyncConnection,
     async with conn.cursor() as cur:
         await cur.execute(sql, (qa_result_id, tax_type, literal))
 
+
 # -----------------------------
 # Core async processing
 # -----------------------------
+
 class TaxRAGPipeline:
     def __init__(self):
         self.llms = build_llms()
-        #self.embedder = SentenceTransformer(f"{PATH_MODELS}/sentence-transformers/paraphrase-multilingual-mpnet-base-v2", device="cuda")
+        self.asyncembeddingmanager = AsyncEmbeddingManager(add_text_to_list(words=EMBED_MODELS, prefix=PATH_MODELS, suffix=''))
         #self.retriever = Retriever(self.embedder)
         self.llm_sem = asyncio.Semaphore(MAX_PARALLEL_LLM_CALLS)
 
@@ -198,8 +264,8 @@ class TaxRAGPipeline:
         latency = now_ms() - start
         return answer.lower().strip(), latency
 
-    async def embed_answer(self, text: str) -> List[float]:
-        return await asyncio.to_thread(lambda: self.embedder.encode(text, normalize_embeddings=True).tolist())
+    # async def embed_answer(self, text: str) -> List[float]:
+    #     return await asyncio.to_thread(lambda: self.embedder.encode(text, normalize_embeddings=True).tolist())
 
     async def process_context(self, context_row: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -219,10 +285,6 @@ class TaxRAGPipeline:
         #syg = context_row["syg"]
         #topic = context_row["teza"]
 
-        key_words = ', '.join(context_row["slowa_kluczowe_wartosc_eu"])
-        print(key_words)
-
-
         # 3) Chunking
         t_chunk_start = time.perf_counter()
         chunks = process_chunk_text(body)
@@ -230,13 +292,15 @@ class TaxRAGPipeline:
 
         #topic = process_topic_text(text=topic)
 
-
+        # 4) Prepare questions
+        key_words = context_row["slowa_kluczowe_wartosc_eu"]
+        print(key_words)
         prompt_tax, questions = tax_prompts(tax_type=tax_type)
         if key_words:
-            q0 = [f"Do podanych słów: {key_words}, wybierz najlepiej dopasowane zdania z tekstu?"]
+            q0 = add_text_to_list(words=key_words, prefix='Do podanego słowa: ', suffix=', wybierz najlepiej dopasowane zdanie z tekstu?')
             questions = q0 + questions
 
-        ask_llm_embed = list(product(questions, MODELS,  repeat=1))
+        ask_llm_embed = list(product(questions, MODELS, repeat=1))
         results_count = 0
         # Pre-open a DB connection for this context to amortize
         async with await psycopg.AsyncConnection.connect(PG_CONN_STR) as conn:
@@ -267,8 +331,13 @@ class TaxRAGPipeline:
                                                             question_len=len(q),
                                                             answer_len= len(answer)
                                                                 )
-                            
+
                             # 4b/6b) Vectorize answer + save embedding
+                            vec = await self.asyncembeddingmanager.embed(model_name=emb_nm, text=answer)
+                            print(f"Embedding vector snippet: {vec[0][:5]}...")
+
+                            vec = await self.asyncembeddingmanager.embed_all(model_name=emb_nm, text=answer)
+                            print(f"Embedding vector snippet: {vec[0][:5]}...")
                             # vec = await self.embed_answer(answer)
                             # await insert_answer_embedding(conn, qa_id, tax_type, vec)
                             return 1
