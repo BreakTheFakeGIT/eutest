@@ -46,18 +46,27 @@ PATH_MODELS = os.environ.get("MODELS_HF")
 POOL_MIN = 1
 POOL_MAX = 10
 
-# Embedded models
+
+#model=f"{PATH_MODELS}/{name}"
+T_EMBED_MODELS = [("sdadas/st-polish-paraphrase-from-mpnet",768)]
+T_EMBED_DIM = [("sentence-transformers/paraphrase-multilingual-mpnet-base-v2",768)]
+T_EMBED_DIM = [("sentence-transformers/paraphrase-multilingual-mpnet-base-v2",768)]
 EMBED_MODELS = ["sdadas/st-polish-paraphrase-from-mpnet","all-MiniLM-L6-v2"]
+
+
+
 # LLM models available in Ollama (ensure they are pulled locally)
 LLM_MODELS = ["hf.co/NikolayKozloff/Llama-PLLuM-8B-instruct-Q8_0-GGUF:Q8_0", "hf.co/second-state/Bielik-4.5B-v3.0-Instruct-GGUF:Q8_0"]  # rename to your local tags if needed
 
-
-MODELS = LLM_MODELS #list(product(LLM_MODELS,T_EMBED_MODELS, repeat=1))
+#MODELS = list(product(LLM_MODELS,T_EMBED_MODELS, repeat=1))
+MODELS = LLM_MODELS
+#MODELS = [(x, y, z) for x, (y, z) in MODELS]
 
 # Concurrency controls
 MAX_PARALLEL_LLM_CALLS = 6   # tune per machine
 MAX_PARALLEL_DB_WRITES = 10
 
+#f"{PATH_MODELS}/sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
 # -----------------------------
 # SQL Query
 # -----------------------------
@@ -245,6 +254,31 @@ async def insert_answer_embedding768(conn: psycopg.AsyncConnection,
         logger.error(f"Error inserting answer embedding768 for qa_result_id={qa_result_id}, tax_type={tax_type}, tax_id={tax_id}, model_embedding={model_embedding}, em: {e}")
         raise
 
+
+
+# async def insert_answer_embedding768(conn: psycopg.AsyncConnection,
+#                                   tax_type: str,
+#                                   tax_id: int,
+#                                   qa_result_id: int,
+#                                   model_embedding: str,
+#                                   embedding: List[float]
+#                                   ) -> int:
+#     sql = """
+#     INSERT INTO odp_embedding768 (typ_podatku, id_informacji, prompt_odp_id, model_embedding, embedding)
+#     VALUES (%s, %s, %s, %s, %s::vector)
+#     RETURNING id
+#     """
+#     embedding = to_pgvector_literal(embedding)
+#     try:
+#         async with conn.cursor() as cur:
+#             await cur.execute(sql, (tax_type, tax_id, qa_result_id, model_embedding, embedding))
+#     except Exception as e:
+#         logger.error(f"Error inserting answer embedding768 for qa_result_id={qa_result_id}, tax_type={tax_type}, tax_id={tax_id}, model_embedding={model_embedding}, em: {e}")
+#         raise
+
+
+
+
 # -----------------------------
 # Core async processing
 # -----------------------------
@@ -253,6 +287,7 @@ class TaxRAGPipeline:
     def __init__(self):
         self.llms = build_llms()
         self.asyncembeddingmanager = AsyncEmbeddingManager(add_text_to_list(words=EMBED_MODELS, prefix=PATH_MODELS, suffix=''))
+        #self.retriever = Retriever(self.embedder)
         self.llm_sem = asyncio.Semaphore(MAX_PARALLEL_LLM_CALLS)
 
     async def llm_answer(self, model_name: str, prompt_tax: str, context: str, question: str) -> Tuple[str, int]:
@@ -263,12 +298,17 @@ class TaxRAGPipeline:
         def _invoke():
             # ChatOllama has .invoke(); returns ChatMessage or string depending on version
             res = self.llms[model_name].invoke(prompt)
+            #print(res)
             # Normalize to string:
             return getattr(res, "content", str(res))
 
         answer = await asyncio.to_thread(_invoke)
+        #print(answer)
         latency = now_ms() - start
         return answer.lower().strip(), latency
+
+    # async def embed_answer(self, text: str) -> List[float]:
+    #     return await asyncio.to_thread(lambda: self.embedder.encode(text, normalize_embeddings=True).tolist())
 
     async def process_context(self, context_row: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -285,22 +325,33 @@ class TaxRAGPipeline:
         tax_type = context_row["typ_podatku"]
         body = context_row["tresc_interesariusz"]
 
-        # Chunking
+        # 1) Clean text
+        # t_clean_start = time.perf_counter()
+        # body = TextEuJson(text=body).process().to_string()
+        # body = TextCleaner(text=body).process().to_string()
+        # timings["czyszczenie_s"] = time.perf_counter() - t_clean_start
+        # 3) Chunking
         t_chunk_start = time.perf_counter()
         chunks = process_chunk_text(body)
         timings["fragmentacja_s"] = time.perf_counter() - t_chunk_start
 
-        # Prepare questions
+        #topic = process_topic_text(text=topic)
+
+        # 4) Prepare questions
         key_words = context_row["slowa_kluczowe_wartosc_eu"]
+        print(key_words)
         prompt_tax, questions = tax_prompts(tax_type=tax_type)
+        print(prompt_tax)
+        print(questions)
         if key_words:
             q0 = add_text_to_list(words=key_words, prefix='Do podanego słowa: ', suffix=', wybierz najlepiej dopasowane zdanie z tekstu?')
-            questions = q0 + questions
+            print(q0)
+        #     questions = q0 + questions
 
         results_count = 0
         # Pre-open a DB connection for this context to amortize
         async with await psycopg.AsyncConnection.connect(PG_CONN_STR) as conn:
-            # For each chunk and each question, query both LLMs
+            # 4) For each chunk and each question, query both LLMs
             tasks = []
             for experiment_key in chunks.keys():
                 for chunk_id, chunk_text in enumerate(chunks[experiment_key]):
@@ -309,10 +360,10 @@ class TaxRAGPipeline:
                         async def one_call(chunk_id=chunk_id, prompt_tax=prompt_tax, chunk_text=chunk_text, q=q, model_name=model_name):
                             async with self.llm_sem:
                                 answer, latency_ms = await self.llm_answer(model_name=model_name, prompt_tax=prompt_tax, context=chunk_text, question=q)
-                            if not answer or answer.strip().lower() in ('brak informacji', 'nie dotyczy'):
-                                return 0  # Skip empty answers
+                                if not answer or answer.strip().lower() in ('brak informacji', 'nie dotyczy'):
+                                    return 0  # Skip empty answers
+                            # 6a) Save QA result
                             print(answer)
-                            # Save QA result
                             qa_id = await insert_qa_result(conn,
                                                             tax_type=tax_type,
                                                             text_id=text_id,
@@ -329,10 +380,28 @@ class TaxRAGPipeline:
                                                             )
                             print(f"Inserted QA result id={qa_id} for text_id={text_id}, tax_type={tax_type}, model={model_name}, chunk_id={chunk_id}.")
 
+                            # 4b/6b) Vectorize answer + save embedding
+
+
+                            # if not key_words:
+                            #     return 0  # Skip if no keywords
+                            # if len(answer) < 10:
+                            #     return 0  # Skip very short answers
+                            # if len(answer) > 1000:
+                            #     return 0  # Skip very long answers
+                            # if len(answer.split()) < 3:
+                            #     return 0  # Skip very short answers
 
                             list_models = self.asyncembeddingmanager.list_models()
                             vec = await self.asyncembeddingmanager.embed(model_name=list_models[0], text=answer)
-                            await insert_answer_embedding768(conn,
+                            # vec_id = await insert_answer_embedding768(conn,
+                            #       tax_type=tax_type,
+                            #       tax_id=text_id,
+                            #       qa_result_id=qa_id,
+                            #       model_embedding= list_models[0],
+                            #       embedding=vec[0]
+                            #       )
+                            vec_id = await insert_answer_embedding768(conn,
                                   tax_type=tax_type,
                                   tax_id=text_id,
                                   topic=context_row["teza"],
@@ -343,13 +412,21 @@ class TaxRAGPipeline:
                                   model_embedding= list_models[0],
                                   embedding=vec[0]
                                   )
+                            print (f"QA Result ID: {vec_id}")
+                            #print(f"Embedding vector snippet: {vec[0][:5]}...")
+
+                            #vec2 = await self.asyncembeddingmanager.embed_all(text=answer)
+                            #print(f"All embeddings keys: {list(vec2.keys())}")
+                            #print(f"Embedding vector snippet all models: {vec2[list_models[0]][0][:5]}...")
+                            
+                            #await insert_answer_embedding(conn, qa_id, tax_type, vec)
 
                             return 1
                         tasks.append(one_call())
 
-            # Measure total LLM phase
+            # 5) Measure total LLM phase
             t_llm_start = time.perf_counter()
-            # Write in bursts to reduce contention
+            # # Write in bursts to reduce contention
             done = await asyncio.gather(*tasks)
             timings["qa_llm_s"] = time.perf_counter() - t_llm_start
             results_count = sum(done)
@@ -363,10 +440,11 @@ class TaxRAGPipeline:
         }
 
 
+
 # -----------------------------
-# Batch orchestrator
+# Batch orchestrator (1, 7)
 # -----------------------------
-async def process_batch(limit: int = 25, tax_type: str | None = None) -> Dict[str, Any]:
+async def process_batch(limit: int = 5, tax_type: str | None = None) -> Dict[str, Any]:
     """
     1) Download batch of texts from DB
     7) For each context, we have 10 questions (questions_for_tax_type)
@@ -393,11 +471,207 @@ async def process_batch(limit: int = 25, tax_type: str | None = None) -> Dict[st
     }
 
 
+# ---------- CLI ----------
+# def parse_args():
+#     parser = argparse.ArgumentParser(description="Process questions with Ollama and store embeddings.")
+#     #parser.add_argument("--conn-str", default=POSTGRES_DSN, required=True, help="PostgreSQL DSN (e.g., postgresql://user:pass@host:port/db)")
+#     #parser.add_argument("--json", required=True, help="Path to export JSON file")
+#     parser.add_argument("--batch-size-sql", type=int, default=100, help="Batch size for SQL requests")
+#     parser.add_argument("--max-retries-sql", type=int, default=3, help="Max retries for SQL requests")
+#     parser.add_argument("--model", default="hf.co/second-state/Bielik-4.5B-v3.0-Instruct-GGUF:Q8_0", help="Ollama model name")
+#     parser.add_argument("--embedding-model", default="/dane/models/all-MiniLM-L6-v2", help="SentenceTransformer model")
+#     print(parser.parse_args())
+#     return parser.parse_args()
+
 # ---------- Main ----------
 async def main():
-    summary = await process_batch(limit=100, tax_type=None)
+    summary = await process_batch(limit=20, tax_type='vat')
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+    #results = await fetch_texts_batch_fetchall(sql=query_sql, limit= 10, tax_type = None)
+    
+    #process_context(context_row = results) -> Dict[str, Any]
+    #logger.info(f"Processing fetch_texts_batch_fetchall {len(results)} answers completed.")
+    #print(results)
+    ##results = await fetch_texts_batch_fetchmany(sql=query_sql, limit= 1000, tax_type = None, batch_size_sql=25)
+    #logger.info(f"Processing fetch_texts_batch_fetchman {len(results)} completed.")
+    #print(results)
+    # args = parse_args()
+    # #print(args.conn_str)
+    # await stream_texts_to_llm_async(query=query_sql,
+    #                                 conn_str=POSTGRES_DSN,
+    #                                 batch_size_sql=args.batch_size_sql,
+    #                                 max_retries_sql=args.max_retries_sql,
+    #                                 model_name=args.model,
+    #                                 embedding_model=args.embedding_model
+    #                                 )
+    
+
+
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+                        #model_name, embed = model
+                        #emb_nm, emb_dim = embed
+                        #print(f"Processing text_id={text_id} | tax_type={tax_type} | experiment_key={experiment_key} | chunk_id={chunk_id} | chunk_len={len(chunk_text_)} | model={model_name} | embed_name={emb_nm} | embed_dim={emb_dim} | question={q[:30]}...")
+                        # Limit parallelism
+# # ---------- Ollama Batch Fetch ----------
+# async def fetch_batch(prompt: str, questions: List[str], model_name: str, retries=3, backoff_factor=2) -> List[str]:
+#     #prompt = """Jesteś ekspertem podatkowym w {type_tax}. Wnioskodawca wprowadził tekst: {text}.\nOdpowiedz na pytania do tekstu jasno i zrozumiale:\n"""
+#     for i, q in enumerate(questions, start=1):
+#         prompt += f"{i}. {q}\n"
+#     print(prompt)
+
+#     for attempt in range(retries):
+#         try:
+#             response = ollama.chat(model=model_name, messages=[{"role": "user", "content": prompt}], options={"temperature": 0.2})
+#             if not response or "message" not in response or "content" not in response["message"]:
+#                 raise ValueError("Invalid response format")
+#             print(response["message"])
+#             raw_text = response["message"]["content"].strip("\n")
+#             print(raw_text)
+#             answers = [ans.strip() for ans in raw_text.split("\n") if ans.strip()]
+#             print(f"Extracted {len(answers)} answers from response.")
+#             #print(answers)
+#             while len(answers) < len(questions):
+#                 answers.append("")
+#             del response, prompt
+#             return answers[:len(questions)]
+
+#         except Exception as e:
+#             wait_time = backoff_factor ** attempt + random.uniform(0, 1)
+#             logger.warning(f"Error fetching batch: {e}. Retrying in {wait_time:.2f}s...")
+#             await asyncio.sleep(wait_time)
+    
+#     logger.error("Failed to fetch batch after retries.")
+#     return ["[Error retrieving answer after retries]"] * len(questions)
+
+# # ---------- Async Embedding ----------
+# async def async_embed(texts: List[str], embedder) -> List[List[float]]:
+#     return await asyncio.to_thread(embedder.encode, texts)
+
+
+
+
+# ---------- Main Pipeline ----------
+# async def process_questions(
+#     prompt: str,
+#     questions: List[str],
+#     model_name: str,
+#     embedding_model: str
+# ):
+
+#     embedder = SentenceTransformer(embedding_model, device='cuda')
+#     results = {}
+#     try:
+#         answers = await fetch_batch(prompt, questions, model_name)
+#         logger.info(f"Processing {len(answers)} answers completed.")
+#         embeddings = await async_embed(answers, embedder)
+#         logger.info(f"Processing {len(embeddings)} embeddings completed.")
+#         for q, ans, emb in zip(questions, answers, embeddings):
+#             #print(f"Q: {q}\nA: {ans}\nEmbedding snippet: {emb[:5]}...\n{'-'*40}")
+#             results[q] = {"answer": ans, "embedding": emb}
+#         return results
+#     except Exception as e:
+#         logger.error(f"Error processing questions: {e}")
+
+    #await save_to_postgres(results, conn_str)
+
+
+
+
+# ---------- Prompts ----------
+# async def stream_texts_to_llm_async(query: str,
+#                                     conn_str: str,
+#                                     batch_size_sql: int,
+#                                     max_retries_sql: int,
+#                                     model_name: str,
+#                                     embedding_model: str
+#                                     ):
+    
+    # async with await psycopg.AsyncConnection.connect(conn_str) as conn:
+    #     async with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+    #         await cur.execute(query)
+    #         while True:
+    #             rows = await cur.fetchmany(batch_size_sql)
+    #             if not rows:
+    #                 break
+    #             texts = [row.get('tresc_interesariusz', []) for row in rows]
+    #             id_infos = [row.get('id_informacji', []) for row in rows]
+    #             tax_types = [row.get('typ_podatku', []) for row in rows]
+
+    #             for id_info, tax_type, text in zip(id_infos,tax_types,texts):
+    #                 for attempt in range(1, max_retries_sql + 1):
+    #                     try:
+    #                         text = split_text_by_header_regex(text=text)
+    #                         results_splits = text_splitting(text=text, chunk_sizes= [800], chunk_overlaps=[200])
+    #                         if results_splits:
+    #                             first_key = list(results_splits.keys())[0]
+    #                             print(f"\nSample result for '{first_key}':")
+    #                             for i, text in enumerate(results_splits[first_key][:2]): # Show first 2 chunks
+    #                                 print(f"  Chunk {i+1}: '{text[:1000]}...'")
+    #                                 prompt_tax, questions_tax = tax_prompts(tax_type=tax_type, user_text=text)
+    #                                 print("=" * 50)
+    #                                 print(f"Processing id_info: {id_info} | tax_type: {tax_type} | length: {len(text)} | text snippet: {text[:100]}")
+    #                                 print("\n" + "=" * 50)
+
+
+
+    #                         break
+    #                     except Exception as e:
+    #                         logger.error(f"Async Error streaming LLM for text: {text[:50]} | Attempt {attempt} | {e}")
+    #                         if attempt < max_retries_sql:
+    #                             delay = 2 ** attempt
+    #                             logger.warning(f"Retrying in {delay}s...")
+    #                             await asyncio.sleep(delay)
+    #                         else:
+    #                             logger.error(f"Skipping text after {max_retries_sql} attempts: {text[:50]}")
+
+
+
+
+
+
+
+
+    # metadata = {
+    #     "timestamp": datetime.utcnow().isoformat(),
+    #     "batch_size": str(batch_size),
+    #     "ollama_model": model_name,
+    #     "embedding_model": embedding_model,
+    #     "question_count": str(len(questions))
+    # }
+
+# python final_script.py \
+#   --dsn "postgresql://user:password@localhost:5432/mydb" \
+#   --json "qa_embeddings.json" \
+#   --batch-size 5 \
+#   --model "llama2" \
+#   --embedding-model "all-MiniLM-L6-v2"
+
+# CREATE TABLE qa_embeddings (
+#     id SERIAL PRIMARY KEY,
+#     question TEXT NOT NULL,
+#     answer TEXT NOT NULL,
+#     embedding FLOAT8[] NOT NULL
+# );
+# ---------- PostgreSQL Insert ----------
+# async def save_to_postgres(results: Dict[str, Dict[str, object]], conn_str: str):
+#     try:
+#         async with await psycopg.AsyncConnection.connect(conn_str) as conn:
+#             async with conn.cursor() as cur:
+#                 for question, data in results.items():
+#                     await cur.execute(
+#                         """
+#                         INSERT INTO public.qa_embeddings (question, answer, embedding)
+#                         VALUES (%s, %s, %s)
+#                         """,
+#                         (question, data["answer"], data["embedding"])
+#                     )
+#             await conn.commit()
+#         logger.info("Data saved to PostgreSQL.")
+#     except Exception as e:
+#         logger.error(f"Database error: {e}")

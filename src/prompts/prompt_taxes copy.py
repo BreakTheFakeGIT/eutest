@@ -1,57 +1,82 @@
 from typing import Tuple, List
 
 # ---------- MAIN----------
-prompt_main = """"""
+prompt_main = """Odpowiadaj krótko, rzeczowo i po polsku"""
 questions_main = [
-    "Wymień 10 słów kluczowych? Wynik oddziel przecinkiem.",
+    "Wskaż 10 słów kluczowych?",
     "Wskaż rodzaj podatku?",
-    "Wymień artykuły, przepisy wksazane w tekście? Pisz krótko.",
-    "Podsumuj tekst w 2 zdaniach?"
+    "Wskaż artykuły, przepisy prawa podatkowego?",
+    "Podsumuj w 3 zdaniach?"
     ]
 
 
 # ---------- VAT ----------
-prompt_vat = """Jesteś ekspertem w zakresie podatku VAT. """ + prompt_main
+prompt_vat = """Jesteś ekspertem w zakresie podatku VAT, obejmującym odliczenia i zwroty, zwolnienia, obniżone stawki, zasady fakturowania i JPK, wspólny system VAT 
+oraz szczególne przypadki dotyczące pojazdów, importu i zwrotów dla sił zbrojnych. """ + prompt_main
 questions_vat = questions_main + [
-    "Proszę określić, czy wnioskodawca prowadzi działalność gospodarczą.",
-    "Czy wnioskodawca jest osobą fizyczną? Odpowiedz krótko.",
-    "Czy wnioskodawca jest jednostką samorządu terytorialnego (np. gmina, powiat, województwo)? Odpowiedz krótko.",
-    "Czy wnioskodawca jest spółką? Jeśli tak, jaka jest forma prawna spółki?",
-    "Czy wnioskodawca należy do innego typu podmiotu, np. stowarzyszenia lub spółdzielni?",
-    "Proszę określić, czy nieruchomość jest zabudowana czy niezabudowana.Odpowiedz krótko.",
-    "Czy wnioskodawca jest czynnym podatnikiem VAT?",
-    "Czy wnioskodawca jest zarejestrowanym podatnikiem VAT w Polsce?",
+    "Czy wnioskodawca prowadzi działalność gospodarczą?",
+    "Czy wnioskodawca jest osobą fizyczną?",
+    "Czy wnioskodawca jest jednostką samorządu terytorialnego (gmina, powiat, województwo)?",
+    "Czy wnioskodawca jest spółką?",
+    "Określ formę prawną spółki?",
+    "Czy wnioskodawca jest innym podmiotem np. stowarzyszenie, spółdzielnia?",
+    "Czy nieruchomość jest zabudowana bądź niezabudowana?",
+    "Czy wnioskodawca jest czynnym?",
+    "Czy wnioskodawca jest zarejestrowanym podatnikiem VAT?",
     "Czy wnioskodawca jest zarejestrowany jako podatnik VAT UE?",
-    "Czy działalność wnioskodawcy jest opodatkowana VAT, zwolniona z VAT, czy mieszana?",
+    "Czy działalność jest opodatkowana podatkiem VAT, zwolniona, czy mieszana?",
     "Jaki jest zakres działalności gospodarczej prowadzonej przez wnioskodawcę?",
-    "Czy sprawa dotyczy sprzedaży towarów? Jeśli tak, jakich?",
-    "Czy sprawa dotyczy świadczenia usług? Jeśli tak, jakich?",
+    "Czy treść dotyczy sprzedaży towaru (jakiego)?",
+    "Czy treść dotyczy świadczenia usług (jakich)?",
     "Na podstawie jakiej czynności prawnej wnioskodawca nabył towar?",
-    "Czy sprawa dotyczy eksportu lub importu?",
-    "Czy wnioskodawca dokonuje transakcji wewnątrzwspólnotowych (np. WNT – nabycie, WDT – dostawa)?",
-    "Czy wnioskodawcy przysługiwało prawo do odliczenia podatku VAT od tej transakcji?",
-    "Czy wartość sprzedaży w bieżącym roku podatkowym przekroczy kwotę 200 000 zł?",
-    "Czy dostawa towaru lub świadczenie usługi korzysta ze zwolnienia z VAT?",
-    "Czy wnioskodawca stosuje stawkę VAT 0% w związku z WDT, WNT lub eksportem?"
-]
-
+    "Czy treść dotyczy eksportu lub importu?",
+    "Czy wnioskodawca dokonuje transakcji wewnątrzwspólnotowych (WNT, WDT)?",
+    "Czy przysługiwało prawo do odliczenia podatku VAT od przedmiotowej transakcji?",
+    "Czy wartość sprzedaży w roku podatkowym przekroczy kwotę 200.000 zł?",
+    "Czy dostawa towaru bądź świadczenie usługi korzysta ze zwolnienia?",
+    "Czy wnioskodawca korzysta w związku z WDT/WNT/eksportem ze stawki podatku VAT w wysokości 0%?"
+    ]
 
 PROMPT_VAT = {'prompt': prompt_vat , 'questions': questions_vat}
 
 # ---------- PIT ----------
-prompt_pit = """Jesteś ekspertem w zakresie PIT.""" + prompt_main
+prompt_pit = """Jesteś ekspertem w zakresie PIT, ewidencji przychodów i środków trwałych, zwrotów wydatków mieszkaniowych oraz programów wsparcia dla młodych przy zakupie pierwszego mieszkania.""" + prompt_main
 questions_pit = questions_main + [
-    "Czy wnioskodawca korzysta z ulg podatkowych? Jakich?",
-    "Jaka jest forma opodatkowania dochodów/przychodów?",
-    "Czy wnioskodawca stosuje skalę podatkową, podatek liniowy, ryczałt, kartę podatkową lub podatek zryczałtowany?",
-    "Jaka jest forma prawna wnioskodawcy?",
+    "Czy wnioskodawca korzysta z ulg i odliczeń podatkowych?",
+    "Czy jest to ulga na dzieci?",
+    "Czy jest to ulga rehabilitacyjna?",
+    "Czy jest to ulga termomodernizacyjna?",
+    "Czy jest to ulga na powrót?",
+    "Czy jest to ulga na zabytki?",
+    "Czy jest to ulga mieszkaniowa?",
+    "Czy jest to ulga dla seniora?",
+    "Czy jest to ulga na innowacje?",
+    "Czy została wskazana forma opodatkowania dochodów/przychodów przez wnioskodawcę?",
+    "Czy wnioskodawca stosuje skalę podatkową?",
+    "Czy wnioskodawca stosuje podatek liniowy?",
+    "Czy wnioskodawca stosuje ryczałt od przychodów ewidencjonowanych?",
+    "Czy wnioskodawca stosuje kartę podatkową?",
+    "Czy wnioskodawca stosuje podatek zryczałtowany?",
+    "Czy wnioskodawca korzysta z ulg i odliczeń podatkowych?",
+    "Jaka jest forma prawna wnioskodawcy (osoba fizyczna, spółka cywilna, spółka jawna, spółka partnerska, spółka komandytowa, spółka komandytowo-akcyjna)?",
     "Jakie jest źródło przychodu wnioskodawcy?",
     "Czy wnioskodawca jest wspólnikiem spółki?",
-    "Czy przychód pochodzi z pracy, emerytury, działalności gospodarczej, najmu, kapitałów, zbycia nieruchomości lub zagranicy?",
-    "Czy wnioskodawca rozlicza podatek we własnym imieniu czy jako płatnik?",
-    "Czy wnioskodawca jest polskim rezydentem podatkowym? Jak spełnia warunki rezydencji?"
-    ]
-
+    "Czy przychód pochodzi z pracy?",
+    "Czy przychód pochodzi z emerytury, renty?",
+    "Czy przychód pochodzi z działalności wykonywanej osobiście?",
+    "Czy przychód pochodzi z pozarolniczej działalności gospodarczej?",
+    "Czy przychód pochodzi z działalności rolniczej lub działów specjalnych?",
+    "Czy przychód pochodzi z najmu, kapitałów pieniężnych?",
+    "Czy przychód pochodzi z zbycia nieruchomości/ruchomości?",
+    "Czy przychód pochodzi z zagranicy?",
+    "Czy wnioskodawca rozlicza podatek we własnym imieniu?",
+    "Czy działa jako płatnik (np. pracodawca, zleceniodawca)?",
+    "Czy wnioskodawca występuje jako podatnik czy jako płatnik?",
+    "Czy wnioskodawca jest polskim rezydentem podatkowym?",
+    "Czy wnioskodawca spełnia warunki rezydencji podatkowej dla miejsca zamieszkania",
+    "Czy wnioskodawca spełnia warunki rezydencji podatkowej dla centrum interesów życiowych?",
+    "Czy wnioskodawca spełnia warunki rezydencji podatkowej dla długość pobytu?",
+       ]
 
 PROMPT_PIT  = {'prompt': prompt_pit, 'questions': questions_pit}
 
@@ -132,7 +157,7 @@ PROMPT_AKCYZA  = {'prompt': prompt_akcyza, 'questions': questions_akcyza}
 
 
 # ---------- ORDYNACJA PODATKOW ----------
-prompt_op = """Jesteś ekspertem podatkowym specjalizującym się w ordynacji podatkowej.""" + prompt_main
+prompt_op = """Jesteś ekspertem podatkowym specjalizującym się w ordynacji podatkowej, e-deklaracjach oraz ustawy o doręczeniach elektronicznych.""" + prompt_main
 questions_op = questions_main + [
     "Czy treść dotyczy obowiązków podatkowych, praw podatników, procedur administracyjnych, kontroli podatkowej, odwołań i skarg, czy innych aspektów ordynacji podatkowej?",
     "Czy treść dotyczy e-deklaracji podatkowych? Jakiego rodzaju deklaracji (np. VAT, PIT, CIT, PCC)?",
