@@ -3,6 +3,7 @@ import time
 from datetime import datetime
 from typing import List, Dict, Any, Tuple, Union
 import json
+import numpy as np
 import os
 import torch
 import re
@@ -108,11 +109,11 @@ def generate_combinations(list1: List[str], list2: List[str]) -> List[Tuple]:
 
 # Compile the regex pattern once for efficiency
 
-_pattern = re.compile(
-    r'^\s*(?:\w+\s*:\s*)?(?:brak informacji|nie dotyczy)[\.\:]*\s*$',
-    re.IGNORECASE
-)
+#brak informacji. 
 def is_empty_or_special(answer: str) -> bool:
+    _pattern = re.compile(
+    r'^\s*(?:\w+\s*:\s*)?(?:brak informacji|nie dotyczy)[\.\:]*\s*$',
+    re.IGNORECASE)
     return bool(_pattern.match(answer or ""))
 
 # -----------------------------
@@ -123,7 +124,12 @@ QA_PROMPT = ChatPromptTemplate.from_messages([
     ("user",
      "Fragment tekstu (wniosku):\n{context}\n\n"
      "Pytanie:\n{question}\n\n"
-     "Odpowidaj krótko i zrozumiale z tekstu. Nie proponuj. Pomiń pytania w odpowiedzi. Jeśli nie znasz odpowiedzi, napisz: 'brak informacji'."
+     "Odpowidaj krótko i zrozumiale. "
+     "Nie proponuj. "
+     "Pomiń pytania w odpowiedzi. "
+     "Jeśli nie znasz odpowiedzi, napisz: ' brak informacji ' "
+     "Oto odpowiedź: "
+
     ),
 ])
 
@@ -164,6 +170,30 @@ class AsyncEmbeddingManager:
         """Return names of all loaded models."""
         return list(self.models.keys())
 
+    def cosine_similarity(self, vec_a: List[float], vec_b: List[float]) -> float:
+            """
+            Calculate cosine similarity between two vectors.
+            Raises ValueError if vectors are empty or have different dimensions.
+            """
+            if not vec_a or not vec_b:
+                raise ValueError("Vectors must not be empty.")
+
+            a = np.array(vec_a)
+            b = np.array(vec_b)
+
+            if a.shape != b.shape:
+                raise ValueError("Vectors must have the same dimensions.")
+
+            norm_a = np.linalg.norm(a)
+            norm_b = np.linalg.norm(b)
+
+            if norm_a == 0 or norm_b == 0:
+                raise ValueError("Vectors must not be zero vectors.")
+
+            similarity = np.dot(a, b) / (norm_a * norm_b)
+            return float(similarity)
+
+
 
 # -----------------------------
 # LLM Clients
@@ -178,27 +208,27 @@ def build_llms() -> Dict[str, ChatOllama]:
 # -----------------------------
 
 async def insert_qa_result(conn: psycopg.AsyncConnection,
-                           text_id: int,
-                           tax_type: str,
-                           experiment_key: str,
-                           chunk_id: int,
-                           chunk_text_: str,
-                           question: str,
-                           model_name: str,
-                           answer: str,
-                           latency_ms: int,
-                           chunk_text_len: int = 0,
-                           question_len: int = 0,
-                           answer_len: int = 0
+                            tax_type: str,
+                            text_id: int,
+                            chunk_len: int,
+                            chunk_text: str,
+                            question: str,
+                            answer: str,
+                            experiment_key: str,
+                            latency_ms: dict,
+                            lengths: dict ,
+                            model_name: dict,
+                            created_at: datetime,
                            ) -> int:
+
     sql = """
-    INSERT INTO prompt_odp (typ_podatku, id_informacji, fragment, pytanie, odpowiedz, model_llm, fragment_id, eksperyment_klucz, opoznienie_ms, fragment_dlg, pytanie_dlg, odpowiedz_dlg)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    INSERT INTO qa_results (tax_type, text_id, chunk_text, question, answer, model_name, chunk_id, chunk_len, experiment_key, latency_ms, lengths, created_at)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
     RETURNING id
     """
     try: 
         async with conn.cursor() as cur:
-            await cur.execute(sql, (tax_type, text_id, chunk_text_, question, answer, model_name, chunk_id, experiment_key, latency_ms, chunk_text_len, question_len, answer_len))
+            await cur.execute(sql, ())
             new_id = (await cur.fetchone())[0]
             return new_id
     except Exception as e:
@@ -209,29 +239,9 @@ async def insert_qa_result(conn: psycopg.AsyncConnection,
 # Insert answer embedding
 # -----------------------------
 
-async def insert_answer_embedding768(conn: psycopg.AsyncConnection,
-                                  tax_type: str,
-                                  tax_id: int,
-                                  topic: str,
-                                  signature: str,
-                                  release_date: datetime,
-                                  keywords: List[str],
-                                  qa_result_id: int,
-                                  model_embedding: str,
-                                  embedding: List[float]
-                                  ) -> int:
-    sql = """
-    INSERT INTO odp_embedding768 (typ_podatku, id_informacji, teza, sygnatura, data_wydania, slowa_kluczowe, prompt_odp_id, model_embedding, embedding)
-    VALUES (%s, %s, %s,%s, %s, %s, %s, %s, %s::vector)
-    """
-    embedding = to_pgvector_literal(embedding)
-    try:
-        async with conn.cursor() as cur:
-            await cur.execute(sql, (tax_type, tax_id, topic, signature, release_date, keywords, qa_result_id, model_embedding, embedding))
-    except Exception as e:
-        logger.error(f"Error inserting answer embedding768 for qa_result_id={qa_result_id}, tax_type={tax_type}, tax_id={tax_id}, model_embedding={model_embedding}, em: {e}")
-        raise
-
+# async def insert_qa_result(conn: psycopg.AsyncConnection,
+#     """INSERT INTO {} (::vector)
+#     VALUES (%s)"""
 
 
 
@@ -279,79 +289,65 @@ class TaxRAGPipeline:
 
         # Prepare questions
         prompt_tax, questions = tax_prompts(tax_type=tax_type)
-        if key_words:
-            q0 = add_text_to_list(words=key_words, prefix='Do podanego słowa: "', suffix='", wybierz najlepiej dopasowane jedno zdanie z tekstu?')
-            questions += list(set(q0))
-
         results_count = 0
         # Pre-open a DB connection for this context to amortize
         async with await psycopg.AsyncConnection.connect(PG_CONN_STR) as conn:
             tasks = []
             for q in questions:
                 for experiment_key in chunks.keys():
-                    for chunk_id, chunk_text in enumerate(chunks[experiment_key]):
+                    chnuks_experiment = chunks[experiment_key]
+                    chunks_len = len(chnuks_experiment)
+                    for chunk_id, chunk_text in enumerate(chnuks_experiment):
                         async def one_call(chunk_id=chunk_id,
                                            prompt_tax=prompt_tax,
                                            chunk_text=chunk_text,
                                            q=q):
                             async with self.llm_sem:
-                                answer0, latency_ms = await self.llm_answer(model_name=LLM_MODELS[0], prompt_tax=prompt_tax, context=chunk_text, question=q)
-                                answer1, latency_ms = await self.llm_answer(model_name=LLM_MODELS[1], prompt_tax=prompt_tax, context=chunk_text, question=q)
-                            print(f"text_id={text_id}, tax_type={tax_type}, q='{q}'")
-                            print(LLM_MODELS[0])
-                            print(answer0)
-                            print(LLM_MODELS[1])
-                            print(answer1)
+                                answer0, latency_ms0 = await self.llm_answer(model_name=LLM_MODELS[0], prompt_tax=prompt_tax, context=chunk_text, question=q)
+                                answer1, latency_ms1 = await self.llm_answer(model_name=LLM_MODELS[1], prompt_tax=prompt_tax, context=chunk_text, question=q)
+
+                            if is_empty_or_special(answer0) and is_empty_or_special(answer1):
+                                return 0  # Skip empty answers
+
+                            answer = {'answer0': answer0,'answer1': answer1, }
+                            latency_ms = {'latency_ms0': latency_ms0,'latency_ms1': latency_ms1, }
+                            latency_ms['latency_ms'] = latency_ms0 + latency_ms1
+                            models = {'model_name0': LLM_MODELS[0],'model_name1': LLM_MODELS[1], }
+                            lengths = {
+                                'text_len': len(text),
+                                'chunk_text_len': len(chunk_text),
+                                'question_len': len(q),
+                                'answer0_len': len(answer0),
+                                'answer1_len': len(answer1),
+                            }
+                            answer_words = {
+                                'chunk_text_words': Counter(chunk_text),
+                                'answer0_words': Counter(answer0),
+                                'answer1_words': Counter(answer1),
+                            }
 
 
-                            # Split by numbered points (e.g., "1. ", "2. ")
-                            parts = re.split(r'\d+\.\s*', text)
-
-                            # Remove empty strings and print results
-                            parts = [p.strip() for p in parts if p.strip()]
-                            for i, part in enumerate(parts, start=1):
-                                print(f"{i}: {part}")
-
-                            # if not answer or is_empty_or_special(answer=answer):
-                            #     print(" ".format(model_name,))
-                            #     return 0  # Skip empty answers
-                            # print(f"text_id={text_id}, tax_type={tax_type}, q='{q}', model={model_name}")
-                            # print(answer)
-                            # Save QA result
-                            # qa_id = await insert_qa_result(conn,
-                            #                                 tax_type=tax_type,
-                            #                                 text_id=text_id,
-                            #                                 chunk_text=chunk_text,
-                            #                                 question=q,
-                            #                                 answer=answer,
-                            #                                 model_name=model_name,
-                            #                                 chunk_id=chunk_id,
-                            #                                 experiment_key=experiment_key,
-                            #                                 latency_ms=latency_ms,
-                            #                                 text_len=text_len, ##
-                            #                                 chunk_text_len=len(chunk_text),
-                            #                                 question_len=len(q),
-                            #                                 answer_len= len(answer),
-                            #                                 chunk_text_words = Counter(chunk_text),
-                            #                                 answer_words = Counter(chunk_text)
-
-                            #                                 )
 
 
-                            # list_models = self.asyncembeddingmanager.list_models()
-                            # vec = await self.asyncembeddingmanager.embed(model_name=list_models[0], text=answer)
-                            # await insert_answer_embedding768(conn,
-                            #       tax_type=tax_type,
-                            #       tax_id=text_id,
-                            #       topic=context_row["teza"],
-                            #       signature=context_row["syg"],
-                            #       release_date=context_row["dt_wyd"],
-                            #       keywords=key_words,
-                            #       qa_result_id=qa_id,
-                            #       # TODO model_name=model_name,
-                            #       model_embedding= list_models[0],
-                            #       embedding=vec[0]
-                            #       )
+                            qa_id = await insert_qa_result(conn,
+                                                            tax_type=tax_type,
+                                                            text_id=text_id,
+                                                            chunk_text=chunk_text,
+                                                            question=q,
+                                                            answer=json.dumps(answer),
+                                                            model_name=json.dumps(models),
+                                                            chunk_id=chunk_id,
+                                                            chunk_len=chunks_len,
+                                                            experiment_key=experiment_key,
+                                                            latency_ms=json.dumps(latency_ms),
+                                                            lengths=json.dumps(lengths),
+                                                            )
+
+
+
+
+
+ 
 
                             return 1
                         tasks.append(one_call())
@@ -410,6 +406,128 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+# async def insert_answer_embedding768(conn: psycopg.AsyncConnection,
+#                                   tax_type: str,
+#                                   tax_id: int,
+#                                   topic: str,
+#                                   signature: str,
+#                                   release_date: datetime,
+#                                   keywords: List[str],
+#                                   qa_result_id: int,
+#                                   model_embedding: str,
+#                                   embedding: List[float]
+#                                   ) -> int:
+#     sql = """
+#     INSERT INTO odp_embedding768 (typ_podatku, id_informacji, teza, sygnatura, data_wydania, slowa_kluczowe, prompt_odp_id, model_embedding, embedding)
+#     VALUES (%s, %s, %s,%s, %s, %s, %s, %s, %s::vector)
+#     """
+#     embedding = to_pgvector_literal(embedding)
+#     try:
+#         async with conn.cursor() as cur:
+#             await cur.execute(sql, (tax_type, tax_id, topic, signature, release_date, keywords, qa_result_id, model_embedding, embedding))
+#     except Exception as e:
+#         logger.error(f"Error inserting answer embedding768 for qa_result_id={qa_result_id}, tax_type={tax_type}, tax_id={tax_id}, model_embedding={model_embedding}, em: {e}")
+#         raise
+
+
+                            # Long (chunks)
+                            # Medium (business question)
+                            # if q == "W punktach, wymień 10 słów kluczowych w postaci listy.":
+                            #     await insert_answer_embedding512(conn,
+                            #           tax_type=tax_type,
+                            #           tax_id=text_id,
+                            #           topic=context_row["teza"],
+                            #           signature=context_row["syg"],
+                            #           release_date=context_row["dt_wyd"],
+                            #           keywords=key_words,
+                            #           qa_result_id=qa_id,
+                            #           model_embedding= list_models[1],
+                            #           embedding=vec1[0]
+                            #           )
+
+                            # Short - keywords
+
+                            # 
+                            # list_models = self.asyncembeddingmanager.list_models()
+                            # vec0 = await self.asyncembeddingmanager.embed(model_name=list_models[0], text=answer0)
+                            # vec1 = await self.asyncembeddingmanager.embed(model_name=list_models[0], text=answer1)
+                            # # vec_cos = self.asyncembeddingmanager.cosine_similarity(vec_a=vec0[0], vec_b=vec1[0])
+                            # # print(f"Cosine similarity between embeddings: {vec_cos}")
+                            # print(vec0)
+                            # print(vec1)
+
+                           # await insert_answer_embedding768(conn,
+                            #       tax_type=tax_type,
+                            #       tax_id=text_id,
+                            #       topic=context_row["teza"],
+                            #       signature=context_row["syg"],
+                            #       release_date=context_row["dt_wyd"],
+                            #       keywords=key_words,
+                            #       qa_result_id=qa_id,
+                            #       # TODO model_name=model_name,
+                            #       model_embedding= list_models[0],
+                            #       embedding=vec[0]
+                            #       )
+
+
+
+
+
+                            # print(f"text_id={text_id}, tax_type={tax_type}, q='{q}'")
+                            # print(LLM_MODELS[0])
+                            # print(answer0)
+                            # print(LLM_MODELS[1])
+                            # print(answer1)
+
+
+                            # # # Split by numbered points (e.g., "1. ", "2. ")
+                            # parts = re.split(r'\d+\.\s*', answer1)
+                            # # Remove empty strings and print results
+                            # parts = [p.strip() for p in parts if p.strip()]
+                            # for i, part in enumerate(parts, start=1):
+                            #     print(f"{i}: {part}")
+
+
+
+    
+                            # vec_cos = self.asyncembeddingmanager.cosine_similarity(vec_a=vec0[0], vec_b=vec1[0])
+                            # print(f"Cosine similarity between embeddings: {vec_cos}")
+
+                            # if not answer or is_empty_or_special(answer=answer):
+                            #     print(" ".format(model_name,))
+                            #     return 0  # Skip empty answers
+                                # print(f"text_id={text_id}, tax_type={tax_type}, q='{q}', model={LLM_MODELS[0]}")
+                                # #Save QA result
+
+
+
+
+
+
+
+
+
+                            # list_models = self.asyncembeddingmanager.list_models()
+                            # vec = await self.asyncembeddingmanager.embed(model_name=list_models[0], text=answer)
+                            # await insert_answer_embedding768(conn,
+                            #       tax_type=tax_type,
+                            #       tax_id=text_id,
+                            #       topic=context_row["teza"],
+                            #       signature=context_row["syg"],
+                            #       release_date=context_row["dt_wyd"],
+                            #       keywords=key_words,
+                            #       qa_result_id=qa_id,
+                            #       # TODO model_name=model_name,
+                            #       model_embedding= list_models[0],
+                            #       embedding=vec[0]
+                            #       )
+
+
+
+
+
+
 
 
 #  async def one_call(chunk_id=chunk_id, prompt_tax=prompt_tax, chunk_text=chunk_text, q=q, model_name=model_name):
