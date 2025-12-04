@@ -11,6 +11,7 @@ import re
 #import ollama
 import psycopg
 from psycopg.rows import dict_row
+from psycopg import sql
 
 from sentence_transformers import SentenceTransformer
 from langchain_ollama import ChatOllama
@@ -38,11 +39,10 @@ POOL_MIN = 1
 POOL_MAX = 10
 
 # Embedded models
-EMBED_MODELS = ["sdadas/st-polish-paraphrase-from-mpnet",
-                "all-MiniLM-L6-v2"]
+#"sdadas/st-polish-paraphrase-from-mpnet","all-MiniLM-L6-v2"
+EMBED_MODELS = ['sdadas/mmlw-retrieval-roberta-large-v2', 'sdadas/stella-pl-retrieval']
 # LLM models available in Ollama (ensure they are pulled locally)
-LLM_MODELS = ["hf.co/NikolayKozloff/Llama-PLLuM-8B-instruct-Q8_0-GGUF:Q8_0", 
-              "hf.co/second-state/Bielik-4.5B-v3.0-Instruct-GGUF:Q8_0"]  # rename to your local tags if needed
+LLM_MODELS = ["hf.co/second-state/Bielik-4.5B-v3.0-Instruct-GGUF:Q8_0", "hf.co/NikolayKozloff/Llama-PLLuM-8B-instruct-Q8_0-GGUF:Q8_0"]
 
 
 MODELS = LLM_MODELS #list(product(LLM_MODELS,T_EMBED_MODELS, repeat=1))
@@ -107,14 +107,24 @@ def generate_combinations(list1: List[str], list2: List[str]) -> List[Tuple]:
     """ Generate all combinations of questions and models with repeat=1."""
     return list(product(list1, list2, repeat=1))
 
-# Compile the regex pattern once for efficiency
-
-#brak informacji. 
 def is_empty_or_special(answer: str) -> bool:
     _pattern = re.compile(
-    r'^\s*(?:\w+\s*:\s*)?(?:brak informacji|nie dotyczy)[\.\:]*\s*$',
+    r'^\s*(?:\w+\s*:\s*)?(?:brak info\w+|nie dot\w+)[\.\:]*\s*$',
     re.IGNORECASE)
     return bool(_pattern.match(answer or ""))
+
+def generate_insert_sql(table_name, column_names):
+    # Create a comma-separated string of column names
+    if 'id' in column_names:
+        column_names = column_names[1:]
+
+    columns = ", ".join(column_names)
+    # Create a string of placeholders for values
+    placeholders = ", ".join(["%s"] * len(column_names))
+    # Construct the SQL statement
+    sql = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
+    return sql
+
 
 # -----------------------------
 # Prompt template for LLMs
@@ -122,14 +132,13 @@ def is_empty_or_special(answer: str) -> bool:
 QA_PROMPT = ChatPromptTemplate.from_messages([
     ("system", "{prompt_tax}"),
     ("user",
-     "Fragment tekstu (wniosku):\n{context}\n\n"
-     "Pytanie:\n{question}\n\n"
+     "Fragment wniosku \n{context}\n\n"
+     "Pytanie \n{question}\n\n"
+     "Wypunktuj odpowiedź na pytanie bazując wyłącznie na powyższym fragmencie wniosku. "
      "Odpowidaj krótko i zrozumiale. "
      "Nie proponuj. "
      "Pomiń pytania w odpowiedzi. "
      "Jeśli nie znasz odpowiedzi, napisz: ' brak informacji ' "
-     "Oto odpowiedź: "
-
     ),
 ])
 
@@ -193,8 +202,6 @@ class AsyncEmbeddingManager:
             similarity = np.dot(a, b) / (norm_a * norm_b)
             return float(similarity)
 
-
-
 # -----------------------------
 # LLM Clients
 # -----------------------------
@@ -206,45 +213,85 @@ def build_llms() -> Dict[str, ChatOllama]:
 # -----------------------------
 # PostgreSQL Inserts
 # -----------------------------
-
-async def insert_qa_result(conn: psycopg.AsyncConnection,
+async def insert_qa_results(conn: psycopg.AsyncConnection,
+                            tabele_name: str = 'qa_results',
                             tax_type: str,
                             text_id: int,
-                            chunk_len: int,
+                            chunk_cnt: int,
+                            chunk_id: int,
                             chunk_text: str,
+                            q_id: int,
                             question: str,
-                            answer: str,
-                            experiment_key: str,
-                            latency_ms: dict,
-                            lengths: dict ,
-                            model_name: dict,
-                            created_at: datetime,
+                            answer: Dict[str, str],
+                            latency_ms: Dict[str, int],
+                            experiment: Dict[str,str],
+                            created_at: datetime
                            ) -> int:
 
-    sql = """
-    INSERT INTO qa_results (tax_type, text_id, chunk_text, question, answer, model_name, chunk_id, chunk_len, experiment_key, latency_ms, lengths, created_at)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-    RETURNING id
-    """
+    sql = sql.SQL("""
+    INSERT INTO {tabele_name} (tax_type, text_id, chunk_cnt, chunk_id, chunk_text, q_id, question, answer, latency_ms, experiment, created_at)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) 
+    RETURNING id;
+    """).format(tabele_name=sql.Identifier(tabele_name))
+
     try: 
         async with conn.cursor() as cur:
-            await cur.execute(sql, ())
+            await cur.execute(sql, (tax_type, text_id, chunk_cnt, chunk_id, chunk_text, q_id, question, answer, latency_ms, experiment, created_at))
             new_id = (await cur.fetchone())[0]
             return new_id
     except Exception as e:
-        logger.error(f"Error inserting QA result for text_id={text_id}, tax_type={tax_type}, , question={question}, model={model_name}, chunk_id={chunk_id}: {e}")
+        logger.error(f"Error inserting QA result for text_id={text_id}, tax_type={tax_type}, q_id={q_id}, question={question}, chunk_id={chunk_id}: {e}")
         raise
 
-# -----------------------------
+# ----------------------------
 # Insert answer embedding
 # -----------------------------
 
-# async def insert_qa_result(conn: psycopg.AsyncConnection,
-#     """INSERT INTO {} (::vector)
-#     VALUES (%s)"""
+async def insert_answer_embedding(conn: psycopg.AsyncConnection,
+                            tabele_name: str,
+                            tax_type: str,
+                            tax_id: int,
+                            chunk_id: int,
+                            intepretation: Dict[str, Any],
+                            model_embedding: str,
+                            embedding: List[float],
+                            updated_at: datetime) -> None:
+    sql = sql.SQL("""
+    INSERT INTO {tabele_name} (tax_type, tax_id, chunk_id, intepretation, model_embedding, embedding, updated_at)
+    VALUES (%s, %s, %s, %s, %s, %s::vector, %s)
+    """).format(tabele_name=sql.Identifier(tabele_name))
+
+    embedding = to_pgvector_literal(embedding)
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(sql, (tax_type,))
+    except Exception as e:
+        logger.error(f"Error inserting answer embedding for chunk_id={chunk_id}, tax_type={tax_type}, tax_id={tax_id}, model_embedding={model_embedding}, em: {e}")
+        raise
 
 
+async def insert_answer_q_embedding(conn: psycopg.AsyncConnection,
+                            tabele_name: str,
+                            tax_type: str,
+                            tax_id: int,
+                            qa_result_id: int,
+                            intepretation: Dict[str, Any],
+                            q_id: int,
+                            model_embedding: str,
+                            embedding: List[float],
+                            updated_at: datetime) -> None:
+    sql = sql.SQL("""
+    INSERT INTO {tabele_name} (tax_type, tax_id, qa_result_id, intepretation, q_id, model_embedding, embedding, updated_at)
+    VALUES (%s, %s, %s, %s, %s, %s, %s::vector, %s)
+    """).format(tabele_name=sql.Identifier(tabele_name))
 
+    embedding = to_pgvector_literal(embedding)
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(sql, (tax_type,))
+    except Exception as e:
+        logger.error(f"Error inserting answer embedding for qa_result_id={qa_result_id}, tax_type={tax_type}, tax_id={tax_id}, model_embedding={model_embedding}, em: {e}")
+        raise
 # -----------------------------
 # Core async processing
 # -----------------------------
@@ -268,23 +315,26 @@ class TaxRAGPipeline:
 
         answer = await asyncio.to_thread(_invoke)
         latency = now_ms() - start
-        return answer.lower().strip(), latency
+        return answer.strip(), latency
 
     async def process_context(self, context_row: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Process a single raw text:
-          - assign questions by tax_type
-          - chunk text
-          - for each chunk × question × model: ask, embed, save
-          - measure timings
+        Process a single raw text
         """
         timings: Dict[str, float] = {}
         t0 = time.perf_counter()
-        text_id, tax_type, text, key_words = context_row["id_informacji"], context_row["typ_podatku"], context_row["tresc_interesariusz"], context_row["slowa_kluczowe_wartosc_eu"]
-
+        text_id, tax_type, text = context_row["id_informacji"], context_row["typ_podatku"], context_row["tresc_interesariusz"]
+        interp = { 
+            'tax_type': tax_type,
+            'text_id': text_id,
+            'topic': context_row["teza"],
+            'signature': context_row["syg"],
+            'release_date': context_row["dt_wyd"],
+            'keywords': context_row["slowa_kluczowe_wartosc_eu"]
+            }
         # Chunking
         t_chunk_start = time.perf_counter()
-        chunks = process_chunk_text(text=text, chunk_size=[2000], chunk_overlap=[400])
+        chunks_experiment = process_chunk_text(text=text, chunk_size=[2000], chunk_overlap=[400])
         timings["fragmentacja_s"] = time.perf_counter() - t_chunk_start
 
         # Prepare questions
@@ -293,61 +343,122 @@ class TaxRAGPipeline:
         # Pre-open a DB connection for this context to amortize
         async with await psycopg.AsyncConnection.connect(PG_CONN_STR) as conn:
             tasks = []
-            for q in questions:
-                for experiment_key in chunks.keys():
-                    chnuks_experiment = chunks[experiment_key]
-                    chunks_len = len(chnuks_experiment)
-                    for chunk_id, chunk_text in enumerate(chnuks_experiment):
-                        async def one_call(chunk_id=chunk_id,
-                                           prompt_tax=prompt_tax,
-                                           chunk_text=chunk_text,
-                                           q=q):
+            for q_id, q in enumerate(questions, start=1):
+                for experiment_key in chunks_experiment.keys():
+                    chunk = chunks_experiment[experiment_key]
+                    chunk_cnt = len(chunk)
+                    for chunk_id, chunk_text in enumerate(chunk, start=1):
+
+                        async def one_call(tax_type=tax_type,
+                                            text_id=text_id,
+                                            chunk_cnt=chunk_cnt,
+                                            chunk_id=chunk_id,
+                                            chunk_text=chunk_text,
+                                            q_id=q_id,
+                                            q=q,
+                                           ):
                             async with self.llm_sem:
                                 answer0, latency_ms0 = await self.llm_answer(model_name=LLM_MODELS[0], prompt_tax=prompt_tax, context=chunk_text, question=q)
                                 answer1, latency_ms1 = await self.llm_answer(model_name=LLM_MODELS[1], prompt_tax=prompt_tax, context=chunk_text, question=q)
 
-                            if is_empty_or_special(answer0) and is_empty_or_special(answer1):
-                                return 0  # Skip empty answers
 
-                            answer = {'answer0': answer0,'answer1': answer1, }
-                            latency_ms = {'latency_ms0': latency_ms0,'latency_ms1': latency_ms1, }
+
+                            is_empty_or_special(answer0)
+                            is_empty_or_special(answer1)
+
+
+                            answer = {'answer0': answer0, 'answer1': answer1, }
+                            latency_ms = {'latency_ms0': latency_ms0, 'latency_ms1': latency_ms1, }
                             latency_ms['latency_ms'] = latency_ms0 + latency_ms1
-                            models = {'model_name0': LLM_MODELS[0],'model_name1': LLM_MODELS[1], }
-                            lengths = {
-                                'text_len': len(text),
-                                'chunk_text_len': len(chunk_text),
-                                'question_len': len(q),
-                                'answer0_len': len(answer0),
-                                'answer1_len': len(answer1),
-                            }
-                            answer_words = {
-                                'chunk_text_words': Counter(chunk_text),
-                                'answer0_words': Counter(answer0),
-                                'answer1_words': Counter(answer1),
-                            }
+                            experiment = {'experiment_key': experiment_key, 'model_name0': LLM_MODELS[0],'model_name1': LLM_MODELS[1], }
+                            print(f"text_id={text_id}, tax_type={tax_type}, q='{q}'")
+                            # print(latency_ms)
+                            # print(answer)
+                            # print(experiment)
+                            print(json.dumps(answer, ensure_ascii=False))
+                            print(is_empty_or_special(answer0))
+                            print(is_empty_or_special(answer1))
 
 
-
-
-                            qa_id = await insert_qa_result(conn,
+                            qa_id = await insert_qa_results(conn,
                                                             tax_type=tax_type,
                                                             text_id=text_id,
-                                                            chunk_text=chunk_text,
-                                                            question=q,
-                                                            answer=json.dumps(answer),
-                                                            model_name=json.dumps(models),
+                                                            chunk_cnt=chunk_cnt,
                                                             chunk_id=chunk_id,
-                                                            chunk_len=chunks_len,
-                                                            experiment_key=experiment_key,
-                                                            latency_ms=json.dumps(latency_ms),
-                                                            lengths=json.dumps(lengths),
+                                                            chunk_text=chunk_text,
+                                                            q_id=q_id,
+                                                            question=q,
+                                                            answer=json.dumps(answer, ensure_ascii=False),
+                                                            latency_ms=json.dumps(latency_ms, ensure_ascii=False),
+                                                            experiment=json.dumps(experiment, ensure_ascii=False),
+                                                            created_at=logger_utils.set_datetime_local()
                                                             )
+                            # if not is_empty_or_special(answer0):
+                            #     pass
 
+                            list_models = self.asyncembeddingmanager.list_models()
+                            if q_id == 1: # First question - chunk text
+                                vec = await self.asyncembeddingmanager.embed(model_name=list_models[1], text=chunk_text)
+                                await insert_answer_embedding(conn,
+                                    tabele_name='chunk_text_embedding1024',
+                                    tax_type=tax_type,
+                                    tax_id=text_id,
+                                    chunk_id=chunk_id,
+                                    intepretation=json.dumps(interp, ensure_ascii=False),
+                                    model_embedding=list_models[1],
+                                    embedding=vec[0],
+                                    updated_at=logger_utils.set_datetime_local()
+                                    )
 
+                            if not is_empty_or_special(answer0):
+                                #insert_bielik_embedding()
+                                vec0 = await self.asyncembeddingmanager.embed(model_name=list_models[1], text=answer0)
+                                await insert_answer_q_embedding(conn,
+                                        tabele_name='bielik_answer_embedding1024',
+                                        tax_type=tax_type,
+                                        tax_id=text_id,
+                                        qa_result_id=qa_id,
+                                        intepretation=json.dumps(interp, ensure_ascii=False),
+                                        q_id=q_id,
+                                        model_embedding= list_models[1],
+                                        embedding=vec0[0],
+                                        updated_at=logger_utils.set_datetime_local()
+                                        )
+                                del vec0
 
+                            if not is_empty_or_special(answer1):
+                                vec1 = await self.asyncembeddingmanager.embed(model_name=list_models[1], text=answer1)
+                                await insert_answer_q_embedding(conn,
+                                        tabele_name='pllum_answer_embedding1024',
+                                        tax_type=tax_type,
+                                        tax_id=text_id,
+                                        qa_result_id=qa_id,
+                                        intepretation=json.dumps(interp, ensure_ascii=False),
+                                        q_id=q_id,
+                                        model_embedding= list_models[1],
+                                        embedding=vec1[0],
+                                        updated_at=logger_utils.set_datetime_local()
+                                        )
 
+                            # if not is_empty_or_special(answer0) and not is_empty_or_special(answer1):
+                            #     vec_cos_01 = self.asyncembeddingmanager.cosine_similarity(vec_a=vec0[0], vec_b=vec1[0])
+                            #     print(f"Cosine similarity between embeddings: {vec_cos_01}")
+                            #     vec_keywords = await self.asyncembeddingmanager.embed(model_name=list_models[1], text=keywords)
 
- 
+                            #     vec_cos_k0 = self.asyncembeddingmanager.cosine_similarity(vec_a=vec_keywords, vec_b=vec0[0])
+                            #     vec_cos_k1 = self.asyncembeddingmanager.cosine_similarity(vec_a=vec_keywords, vec_b=vec1[0])
+                            #     await insert_cosine_similarity(conn,
+                            #             tabele_name='cosine_similarity',
+                            #             tax_type=tax_type,
+                            #             tax_id=text_id,
+                            #             qa_result_id=qa_id,
+                            #             intepretation=json.dumps(interp, ensure_ascii=False),
+                            #             q_id=q_id,
+                            #             cosine_similarity=vec_cos_01,
+                            #             cosine_similarity_k0=vec_cos_k0,
+                            #             cosine_similarity_k1=vec_cos_k1,
+                            #             updated_at=logger_utils.set_datetime_local()
+                            #             )
 
                             return 1
                         tasks.append(one_call())
@@ -407,6 +518,29 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 
+
+
+
+
+                            # tax_type: str,
+                            # text_id: int,
+                            # topic: str,
+                            # signature: str,
+                            # release_date: datetime,
+                            # keywords: List[str],
+                            # lengths = {
+                            #     'text_len': len(text),
+                            #     'chunk_text_len': len(chunk_text),
+                            #     'question_len': len(q),
+                            #     'answer0_len': len(answer0),
+                            #     'answer1_len': len(answer1),
+                            # }
+                            # answer_words = {
+                            #     'chunk_text_words': Counter(chunk_text),
+                            #     'answer0_words': Counter(answer0),
+                            #     'answer1_words': Counter(answer1),
+                            # }
+
 # async def insert_answer_embedding768(conn: psycopg.AsyncConnection,
 #                                   tax_type: str,
 #                                   tax_id: int,
@@ -419,7 +553,7 @@ if __name__ == "__main__":
 #                                   embedding: List[float]
 #                                   ) -> int:
 #     sql = """
-#     INSERT INTO odp_embedding768 (typ_podatku, id_informacji, teza, sygnatura, data_wydania, slowa_kluczowe, prompt_odp_id, model_embedding, embedding)
+#     INSERT INTO odp_embedding768 (typ_podatku, tax_type, tax_id, topic, signature, release_date, keywords, qa_result_id, model_embedding, embedding)
 #     VALUES (%s, %s, %s,%s, %s, %s, %s, %s, %s::vector)
 #     """
 #     embedding = to_pgvector_literal(embedding)
@@ -448,7 +582,7 @@ if __name__ == "__main__":
 
                             # Short - keywords
 
-                            # 
+                            #
                             # list_models = self.asyncembeddingmanager.list_models()
                             # vec0 = await self.asyncembeddingmanager.embed(model_name=list_models[0], text=answer0)
                             # vec1 = await self.asyncembeddingmanager.embed(model_name=list_models[0], text=answer1)
@@ -569,3 +703,6 @@ if __name__ == "__main__":
 #                                   )
 
 #                             return 1
+
+
+
