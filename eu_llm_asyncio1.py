@@ -6,14 +6,16 @@ import psycopg
 from psycopg import sql
 import random
 import argparse
-from typing import List, Dict
+from typing import List, Dict, Any, Tuple
+import psycopg.rows
+from sentence_transformers import SentenceTransformer
 from datetime import datetime
 from itertools import product
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.prompts.chat import ChatPromptTemplate
 from langchain_ollama import ChatOllama
 from src.utils.text_cleaner import pipeline_process, extract_fact_q
-from src.prompts.prompt_taxes import tax_prompts
+from src.prompts.prompt_taxes import get_questions, get_prompt
 import src.utils.logger as logger_utils
 from dotenv import load_dotenv
 load_dotenv()
@@ -44,7 +46,7 @@ MODELS = LLM_MODELS #list(product(LLM_MODELS,T_EMBED_MODELS, repeat=1))
 # Concurrency controls
 MAX_PARALLEL_LLM_CALLS = 6  # tune per machine
 MAX_PARALLEL_DB_WRITES = 10
-
+llm_sem = asyncio.Semaphore(MAX_PARALLEL_LLM_CALLS)
 # ---------- SQL Query ----------
 query_sql = sql.SQL("""SELECT DISTINCT
                     id_informacji,
@@ -69,6 +71,10 @@ query_sql = sql.SQL("""SELECT DISTINCT
 # -----------------------------
 # Helpers
 # -----------------------------
+def async_connection(conn_str: str=PG_CONN_STR):
+    asynconnect = psycopg.AsyncConnection.connect(conn_str)
+    return asynconnect
+
 
 def to_pgvector_literal(vec: List[float]) -> str:
     """Convert a list of floats to pgvector textual literal: '[0.1,0.2,...]'"""
@@ -82,135 +88,126 @@ def now_ms() -> int:
 # Prompt template for LLMs
 # -----------------------------
 QA_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", "{prompt_tax}"),
+    ("system", "{system}"),
     ("user",
-     "Fragment wniosku \n{context}\n\n"
-     "Pytanie \n{question}\n\n"
-     "Wypunktuj odpowiedź na pytanie bazując wyłącznie na powyższym fragmencie wniosku. "
-     "Odpowidaj krótko i zrozumiale. "
-     "Nie proponuj. "
-     "Pomiń pytania w odpowiedzi. "
-     "Jeśli nie znasz odpowiedzi, napisz: ' brak informacji ' "
+    "Fragment wniosku \n{context}\n\n"
+    "Pytanie \n{question}\n\n"
+    "W puntkach odpowiedź na pytanie bazując wyłącznie na powyższym fragmencie wniosku. "
+    "Odpowidaj krótko i zrozumiale. "
+    "Nie proponuj. "
+    "Pomiń pytania w odpowiedzi. "
+    "Jeśli nie znasz odpowiedzi, napisz: ' brak informacji '"
     ),
 ])
-
 
 # -----------------------------
 # LLM Clients
 # -----------------------------
-
-
-
-
-async def generate_answer(
-    chunk_text: str, 
-    question: str, 
-    llm: ChatOllama, 
-    semaphore: asyncio.Semaphore
-) -> Dict[str, Any]:
-    """
-    Generates an answer for a specific chunk and question.
-    Uses a semaphore to limit concurrent calls to the local Ollama instance.
-    """
-    async with semaphore:
-        prompt = ChatPromptTemplate.from_template(
-            "Kontekst:\n{context}\n\nPytanie: {question}\n\nOdpowiedź (zwięźle):"
-        )
-        chain = prompt | llm
-        
-        try:
-            # Run the chain asynchronously
-            response = await chain.ainvoke({"context": chunk_text, "question": question})
-            return {
-                "question": question,
-                "answer": response.content,
-                "chunk_text": chunk_text,
-                "success": True
-            }
-        except Exception as e:
-            print(f"Error generating answer: {e}")
-            return {"success": False}
+def rows_collect(rows: dict) -> Tuple[List[int], List[str], List[str], List[Dict[str, Any]]]:
+    texts = [pipeline_process(text=row.get('tresc_interesariusz', [])) for row in rows]
+    interp_ids = [row.get('id_informacji', []) for row in rows]
+    tax_types = [row.get('typ_podatku', []) for row in rows]
+    topic = [x[1] for x in [pipeline_process(row.get("teza", [])) for row in rows]]
+    file_reference =  [row.get('syg', []) for row in rows] 
+    release_date = [row.get("dt_wyd", []) for row in rows]
+    keywords = [', '.join(row.get("slowa_kluczowe_wartosc_eu", [])) for row in rows]
+    interp = [{'id_informacji': interp_ids,
+                'typ_podatku': tax_types,
+                'teza': topic,
+                'sygnatura': file_reference,
+                'data_wydania': release_date,
+                'slowa_kluczowe': keywords} for _ in rows]
+    return interp_ids, tax_types, texts, interp
 
 
 # -----------------------------------
 # ---------- Text Chunking ----------
 # -----------------------------------
-def chunk_text(text: str, chunk_size: int = 1750,
-    chunk_overlap: int = 250) -> List[str]:
-    splitter = RecursiveCharacterTextSplitter(
-    chunk_size=chunk_size,
-    chunk_overlap=chunk_overlap,
-    length_function=len,
-    separators=["\n\n", "\n", "?"],
-    )
-    return splitter.split_text(text)
-
-
-class TaxRAGPipeline:
-    def __init__(self):
-        self.llms =  ChatOllama(model=LLM_MODELS[0], temperature=0)
-        #self.asyncembeddingmanager = AsyncEmbeddingManager(add_text_to_list(words=EMBED_MODELS, prefix=PATH_MODELS, suffix=''))
-        self.llm_sem = asyncio.Semaphore(MAX_PARALLEL_LLM_CALLS)
-
-    async def llm_answer(self, model_name: str, prompt_tax: str, context: str, question: str) -> Tuple[str, int]:
-        """Call LLM synchronously in a thread; measure latency (ms)."""
-        prompt = QA_PROMPT.format(prompt_tax=prompt_tax, context=context, question=question)
-        start = now_ms()
-
-        def _invoke():
-            # ChatOllama has .invoke(); returns ChatMessage or string depending on version
-            res = self.llms[model_name].invoke(prompt)
-            # Normalize to string:
-            return getattr(res, "content", str(res))
-
-        answer = await asyncio.to_thread(_invoke)
-        latency = now_ms() - start
-        return answer.strip(), latency
-
-async def process_context(self, interp_id, tax_type, text, interp) -> Dict[str, Any]:
-        """
-        Process a single raw text
-        """
-        timings: Dict[str, float] = {}
-
-        start = time.perf_counter()
-        # Chunking example
-        text_start_end, text_norm = text
-        chunks = chunk_text(text=text_norm, chunk_size=1750, chunk_overlap=250)
-        prompt_tax, questions = tax_prompts(tax_type=tax_type)
-        results = [(chunk_id, question_id, chunk_text, question) for (chunk_id, chunk_text), (question_id, question) in product(enumerate(chunks,start=1), enumerate(questions, start=1)) ]
-        timings['chunking_s'] = time.perf_counter() - start
-
-
-        # Prepare questions
-        results_count = 0
-        # Pre-open a DB connection for this context to amortize
-        async with await psycopg.AsyncConnection.connect(PG_CONN_STR) as conn:
-            tasks = []
-            for (chunk_id, question_id, chunk_text, question) in results:
-                for model_name, embedding_model in MODELS:
-                    async def one_call():
-                        async with self.llm_sem:
-                            answer, latency_ms = await self.llm_answer(model_name=model_name, prompt_tax=prompt_tax, context=chunk_text, question=question)
+def text_chunking(text: str) -> List[str]:
+    """
+    Process a single raw text
+    """
+    splitter = RecursiveCharacterTextSplitter(chunk_size=1750,
+                                            chunk_overlap=250,
+                                            length_function=len,
+                                            separators=["\n\n", "\n", "?"],
+                                            )
+    chunks = splitter.split_text(text)
+    return [chunk for chunk in chunks if len(chunk)>50]
 
 
 
-                            return 1
-                        tasks.append(one_call())
+
+# def product_chunking(tax_type: str, text: str) -> List[Tuple]:
+#     """
+#     Process a single raw text
+#     """
+#     splitter = RecursiveCharacterTextSplitter(chunk_size=1750,
+#                                             chunk_overlap=250,
+#                                             length_function=len,
+#                                             separators=["\n\n", "\n", "?"],
+#                                             )
+
+#     chunks = [chunk for chunk in splitter.split_text(text) if len(chunk)>50]
+#     questions = get_questions(area=tax_type)
+#     product_chunks = [(chunk_id, question_id, chunk_text, question) for (chunk_id, chunk_text), (question_id, question) in product(enumerate(chunks,start=1), enumerate(questions, start=1)) ]
+#     return product_chunks
+
+# class TaxPipeline:
+#     def __init__(self, llm_model_name: str):
+#         self.llm_model_name = llm_model_name
+#         self.llms =  ChatOllama(model=self.llm_model_name, temperature=0)
+#         #self.asyncembeddingmanager = AsyncEmbeddingManager(add_text_to_list(words=EMBED_MODELS, prefix=PATH_MODELS, suffix=''))
+#         self.llm_sem = asyncio.Semaphore(MAX_PARALLEL_LLM_CALLS)
+
+#     async def llm_answer(self, system: str, context: str, question: str) -> Tuple[str, int]:
+#         prompt = QA_PROMPT.format(system=system, context=context, question=question)
+#         start = now_ms()
+
+#         def _invoke():
+#             res = self.llms.invoke(prompt)
+#             return getattr(res, "content", str(res))
+
+#         answer = await asyncio.to_thread(_invoke)
+#         latency = now_ms() - start
+#         return answer.strip(), latency
+    
+#     async def process_context(self, row_context: Dict[str,Any]) -> Dict[str, Any]:
+#         """
+#         Process a single raw text:
+#         """
+#         system = row_context['system']
+#         tex_type = row_context['tax_type']
+#         product_chunking = row_context['product_chunking']
+#         async with await psycopg.AsyncConnection.connect(PG_CONN_STR) as conn:
+#             # 4) For each chunk and each question, query both LLMs
+#             tasks = []
+#             for item_product_chunking in row_context:
+#                 chunk_id, question_id, chunk_text, question = item_product_chunking 
+#                 async def one_call(chunk_text=chunk_text, question=question):
+#                     async with self.llm_sem:
+#                         answer, latency_ms = await self.llm_answer(system=system, context=chunk_text, question=question) 
+#                     # 6a) Save QA result
+#                     print(answer)
+#                     return 1
+#                 tasks.append(one_call())
 
 
-            # Write in bursts to reduce contention
-            done = await asyncio.gather(*tasks)
+
+
 
 
 
 
 # ---------- Prompts ----------
-async def stream_texts_to_llm_async(query: str,
-                                    conn_str: str,
-                                    batch_size_sql: int,
-                                    max_retries_sql: int,
-                                    ):
+async def process_batch(query: str,
+                        conn_str: str,
+                        batch_size_sql: int,
+                        #max_retries_sql: int,
+                        #llm_model_name: str,
+                        # embedding_model: str
+                        ):
+    #pipeline = TaxPipeline(llm_model_name=llm_model_name)
     async with await psycopg.AsyncConnection.connect(conn_str) as conn:
         async with conn.cursor(name="stream_cursor", row_factory=psycopg.rows.dict_row) as cur:
             await cur.execute(query)
@@ -218,52 +215,58 @@ async def stream_texts_to_llm_async(query: str,
                 rows = await cur.fetchmany(batch_size_sql)
                 if not rows:
                     break
+                interp_ids, tax_types, texts, interp = rows_collect(rows=rows)
+                chunks = [(text_chunking(text=text_start_end),text_chunking(text=text_norm)) for (text_start_end,text_norm) in texts]
+                questions = [get_questions(area=tax_type) for tax_type in tax_types]
+                system_prompt = [get_prompt(area=tax_type) for tax_type in tax_types]
+                print(questions)
+                
+names = ['Alice', 'Bob', 'Charlie']
+ages = [30, 25, 35]
+cities = ['New York', 'London', 'Paris']
 
-                texts = [pipeline_process(text=row.get('tresc_interesariusz', [])) for row in rows]
-                interp_ids = [row.get('id_informacji', []) for row in rows]
-                tax_types = [row.get('typ_podatku', []) for row in rows]
-                topic = [x[1] for x in [pipeline_process(row.get("teza", [])) for row in rows]]
-                file_reference =  [row.get('syg', []) for row in rows] 
-                release_date = [row.get("dt_wyd", []) for row in rows]
-                keywords = [', '.join(row.get("slowa_kluczowe_wartosc_eu", [])) for row in rows]
-                interp = [{'id_informacji': interp_ids,
-                           'typ_podatku': tax_types,
-                           'teza': topic,
-                           'sygnatura': file_reference,
-                           'data_wydania': release_date,
-                           'slowa_kluczowe': keywords} for _ in rows]  # Placeholder for interpretations
-
-                for interp_id, tax_type, text, interp in zip(interp_ids,tax_types,texts, interp):
-                    for attempt in range(1, max_retries_sql + 1):
-                        try:
-                            print("="*10+' START TEXT '+"="*50)
-                            print(f'INTERP_ID: {interp_id}, TAX TYPE: {tax_type}, TEXT: {text}, INTERP: {interp}')
-
-                            # Chunking example
-                            text_start_end, text_norm = text
-                            chunks = chunk_text(text=text_norm, chunk_size=1750, chunk_overlap=250)
-                            prompt_tax, questions = tax_prompts(tax_type=tax_type)
-                            results = [(chunk_id, question_id, chunk_text, question) for (chunk_id, chunk_text), (question_id, question) in product(enumerate(chunks,start=1), enumerate(questions, start=1)) ]
-                           
+zipped_rows = list(zip(names, ages, cities))
 
 
 
+                # for interp_id, tax_type, text, interp in zip(interp_ids,tax_types,texts, interp):
+                #     text_start_end, text_norm = text
+                #     product_chunking = product_chunking(tax_type=tax_type, text=text_norm)
+                #     row_context = {'interp_id': interp_id,
+                #                    'tax_type': tax_type,
+                #                    'text_text_start_end': text_start_end,
+                #                    'text_norm': text_norm,
+                #                    'interp': interp,
+
+                #                    }
+                #     for attempt in range(1, max_retries_sql + 1):
+                #         try:
+                #             # print("="*10+' START TEXT '+"="*50)
+                #             # print(f'INTERP_ID: {interp_id}, TAX TYPE: {tax_type}, TEXT: {text}, INTERP: {interp}')
+                            
+                            
+                            
+                #             print(rows_product_chunking)
+                #             contexts_tasks = [pipeline.process_context(r) for r in rows_product_chunking]
+                #             contexts_results = await asyncio.gather(*contexts_tasks)
 
 
+                #             # print(f'batch_size_sql {len(rows)}')
+                #             # print(f'list interp_ids of batch_size_sql {interp_ids}')
+                #             # print("="*10+' END TEXT '+"="*50)
+                #         except Exception as e:
+                #             logger.error(f"Async Error streaming LLM for text: {text[:50]} | Attempt {attempt} | {e}")
+                #             if attempt < max_retries_sql:
+                #                 delay = 2 ** attempt
+                #                 logger.warning(f"Retrying in {delay}s...")
+                #                 await asyncio.sleep(delay)
+                #             else:
+                #                 logger.error(f"Skipping text after {max_retries_sql} attempts: {text[:50]}")
 
 
-
-                            print(f'batch_size_sql {len(rows)}')
-                            print(f'list interp_ids of batch_size_sql {interp_ids}')
-                            print("="*10+' END TEXT '+"="*50)
-                        except Exception as e:
-                            logger.error(f"Async Error streaming LLM for text: {text[:50]} | Attempt {attempt} | {e}")
-                            if attempt < max_retries_sql:
-                                delay = 2 ** attempt
-                                logger.warning(f"Retrying in {delay}s...")
-                                await asyncio.sleep(delay)
-                            else:
-                                logger.error(f"Skipping text after {max_retries_sql} attempts: {text[:50]}")
+    return {
+        "fetched": len(rows),
+    }
 
 
 
@@ -275,7 +278,7 @@ def parse_args():
     #parser.add_argument("--json", required=True, help="Path to export JSON file")
     parser.add_argument("--batch-size-sql", type=int, default=25, help="Batch size for SQL requests")
     parser.add_argument("--max-retries-sql", type=int, default=3, help="Max retries for SQL requests")
-    parser.add_argument("--model", default="hf.co/second-state/Bielik-4.5B-v3.0-Instruct-GGUF:Q8_0", help="Ollama model name")
+    parser.add_argument("--llm-model-name", default="hf.co/second-state/Bielik-4.5B-v3.0-Instruct-GGUF:Q8_0", help="Ollama model name")
     parser.add_argument("--embedding-model", default="/dane/models/sdadas/mmlw-retrieval-roberta-large-v2", help="SentenceTransformer model")
     print(parser.parse_args())
     return parser.parse_args()
@@ -283,17 +286,26 @@ def parse_args():
 # ---------- Main ----------
 async def main():
     args = parse_args()
-    await stream_texts_to_llm_async(query=query_sql,
+    await process_batch(query=query_sql,
                                     conn_str=PG_CONN_STR,
                                     batch_size_sql=args.batch_size_sql,
-                                    max_retries_sql=args.max_retries_sql
-
+                                    #max_retries_sql=args.max_retries_sql,
+                                    #llm_model_name=args.llm_model_name
                                     )
+
+
 
 if __name__ == "__main__":
     asyncio.run(main())
 
 ############################################################################
+
+                            # # Chunking example
+                            # text_start_end, text_norm = text
+                            # chunks = chunk_text(text=text_norm, chunk_size=1750, chunk_overlap=250)
+                            # prompt_tax, questions = tax_prompts(tax_type=tax_type)
+                            # results = [(chunk_id, question_id, chunk_text, question) for (chunk_id, chunk_text), (question_id, question) in product(enumerate(chunks,start=1), enumerate(questions, start=1)) ]
+
     # metadata = {
     #     "timestamp": datetime.utcnow().isoformat(),
     #     "batch_size": str(batch_size),
@@ -381,3 +393,31 @@ if __name__ == "__main__":
                             # planner.num_chunks_static(length: int, chunk_size: int, overlap: int) 
                             # print("N =", planner.num_chunks())
                             # print("Indices:", planner.indices())
+# async def generate_answer(
+#     chunk_text: str,
+#     question: str,
+#     llm: ChatOllama,
+#     semaphore: asyncio.Semaphore
+# ) -> Dict[str, Any]:
+#     """
+#     Generates an answer for a specific chunk and question.
+#     Uses a semaphore to limit concurrent calls to the local Ollama instance.
+#     """
+#     async with semaphore:
+#         prompt = ChatPromptTemplate.from_template(
+#             "Kontekst:\n{context}\n\nPytanie: {question}\n\nOdpowiedź (zwięźle):"
+#         )
+#         chain = prompt | llm
+        
+#         try:
+#             # Run the chain asynchronously
+#             response = await chain.ainvoke({"context": chunk_text, "question": question})
+#             return {
+#                 "question": question,
+#                 "answer": response.content,
+#                 "chunk_text": chunk_text,
+#                 "success": True
+#             }
+#         except Exception as e:
+#             print(f"Error generating answer: {e}")
+#             return {"success": False}
