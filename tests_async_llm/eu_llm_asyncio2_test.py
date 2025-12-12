@@ -14,7 +14,7 @@ from langchain_ollama import ChatOllama
 from langchain.prompts import ChatPromptTemplate
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-from src.prompts.prompt_taxes import tax_prompts
+from src.prompts.prompt_taxes_close import tax_prompts
 from src.utils.text_splitter import process_cut_text, text_splitting, split_text_by_header_regex
 
 import src.utils.logger as logger_utils

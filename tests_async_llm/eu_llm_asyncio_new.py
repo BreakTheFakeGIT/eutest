@@ -19,7 +19,7 @@ from langchain.prompts import ChatPromptTemplate
 from itertools import product
 from collections import Counter
 
-from src.prompts.prompt_taxes import tax_prompts
+from src.prompts.prompt_taxes_close import tax_prompts
 from src.utils.text_splitter import process_chunk_text
 import src.utils.logger as logger_utils
 from dotenv import load_dotenv

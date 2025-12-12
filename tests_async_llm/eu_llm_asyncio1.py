@@ -15,7 +15,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.prompts.chat import ChatPromptTemplate
 from langchain_ollama import ChatOllama
 from src.utils.text_cleaner import pipeline_process, extract_fact_q
-from src.prompts.prompt_taxes import get_questions, get_prompt
+from src.prompts.prompt_taxes_close import get_questions, get_prompt
 import src.utils.logger as logger_utils
 from dotenv import load_dotenv
 load_dotenv()
@@ -51,7 +51,7 @@ query_sql = sql.SQL("""SELECT DISTINCT
                     id_informacji,
                     typ_podatku,
                     tresc_interesariusz,
-                    dt_wyd,
+                    TO_CHAR(dt_wyd, 'YYYY-MM-DD') AS dt_wyd,
                     syg,
                     teza,
                     slowa_kluczowe_wartosc_eu
