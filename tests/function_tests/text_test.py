@@ -447,3 +447,38 @@ class TextCleaner:
                 if not rows:
                     break
                 return rows
+            
+
+def split_text_by_header(text: str) -> str:
+    """
+    Split text into chunk using header
+    """
+    text_lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    HEADER_PATTERN = r'([A-ZŚĆŻŹŃŁÓĘĄ][^\n]*[^\.\?!:;]\s*)$'
+    chunks_content = []
+    current_chunk = []
+    is_initial_header_gathering = True
+
+    for i, line in enumerate(text_lines):
+        is_header = re.search(HEADER_PATTERN, line)
+        if is_initial_header_gathering:
+            if is_header:
+                current_chunk.append(line)
+            else:
+                is_initial_header_gathering = False
+                current_chunk.append(line)
+            continue
+
+        if is_header:
+            if current_chunk:
+                chunks_content.append(' '.join(current_chunk))
+                current_chunk = []
+            current_chunk.append(line)
+        else:
+            current_chunk.append(line)
+
+    if current_chunk:
+        chunks_content.append(' '.join(current_chunk))
+
+    return ' \n\n '.join(chunks_content)

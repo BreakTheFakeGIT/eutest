@@ -21,7 +21,7 @@ CONSOLIDATE_JSON_FOLDER = os.environ.get("CONSOLIDATE_JSON_FOLDER")
 POSTGRES_DSN = os.environ.get("POSTGRES_DSN")
 
 ###################################
-logger = logger_utils.setup_logger(name=f'eu_load_json_{TABLE_NAME}')
+logger = logger_utils.setup_logger(name=f'eu_load_json_save_db_{TABLE_NAME}')
 logger.info(f"TABLE_NAME path: {TABLE_NAME}")
 logger.info(f"EU_DICT path: {EU_DICT}")
 logger.info(f"EU_SQL path: {EU_SQL}")
@@ -31,7 +31,8 @@ logger.info(f'CONSOLIDATE_JSON_FOLDER path: {CONSOLIDATE_JSON_FOLDER}')
 ###################################
 dir_list = os.listdir(CONSOLIDATE_JSON_FOLDER)
 dir_list.sort(reverse=False, key=lambda x: int(x.split('_')[-1].split('.')[0]))
-pattern = re.compile(r'^consolidate_json_([1-9]\d*|[0-9]\d{2,})\.json')
+#pattern = re.compile(r'^consolidate_json_([1-9]\d*|[0-9]\d{2,})\.json')
+pattern = re.compile(r'^consolidate_json_')
 dir_list = [filename for filename in dir_list if pattern.match(filename)]
 
 # ###################################

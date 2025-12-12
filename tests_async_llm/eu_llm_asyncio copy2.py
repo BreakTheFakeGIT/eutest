@@ -70,9 +70,7 @@ async def fetch_batch(prompt: str, questions: List[str], model_name: str, retrie
     logger.error("Failed to fetch batch after retries.")
     return ["[Error retrieving answer after retries]"] * len(questions)
 
-# ---------- Async Embedding ----------
-async def async_embed(texts: List[str], embedder) -> List[List[float]]:
-    return await asyncio.to_thread(embedder.encode, texts)
+
 
 
 
