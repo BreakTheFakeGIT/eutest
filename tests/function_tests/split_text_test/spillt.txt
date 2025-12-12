@@ -1,0 +1,474 @@
+import re
+from typing import List, Dict, Any, Tuple
+
+# Aby uruchomić tę część, musisz mieć zainstalowany langchain:
+# pip install langchain-core langchain-text-splitters
+try:
+    from langchain_core.documents import Document
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    LANGCHAIN_AVAILABLE = True
+except ImportError:
+    print("Uwaga: Biblioteki Langchain nie są zainstalowane. Funkcje związane z Langchain będą niedostępne.")
+    print("Zainstaluj je używając: pip install langchain-core langchain-text-splitters")
+    # Definiujemy atrapy klas, aby kod działał bez błędów
+    class Document:
+        def __init__(self, page_content: str, metadata: Dict[str, Any]):
+            self.page_content = page_content
+            self.metadata = metadata
+        def __repr__(self) -> str:
+            return f"Document(page_content='{self.page_content[:50]}...', metadata={self.metadata})"
+    LANGCHAIN_AVAILABLE = False
+
+
+def process_polish_text(text: str) -> Tuple[str, List[Document]]:
+    """
+    Dzieli polski tekst na fragmenty na podstawie odmienialnych fraz,
+    filtruje niechciane sekcje i zwraca połączony tekst oraz listę Dokumentów Langchain.
+
+    Frazy do podziału (i ich rdzenie):
+    - "ocena" (rdzeń: 'ocen')
+    - "stan faktyczny" (rdzeń: 'stan faktyczn')
+    - "pytania" (rdzeń: 'pytan')
+
+    Fraza do usunięcia (i jej rdzeń):
+    - "pouczenie" (rdzeń: 'poucze')
+    """
+
+    # Definiujemy rdzenie (stemy), na podstawie których będziemy dzielić.
+    # To czyni skrypt odpornym na odmianę przez przypadki (inflekcję).
+    stems_to_split = ['ocen', 'stan faktyczn', 'pytan']
+    stem_to_remove = 'poucze'
+
+    # Mapowanie rdzeni na kategorie (dla metadanych Langchain)
+    stem_categories = {
+        'ocen': 'assessment',
+        'stan faktyczn': 'factual_status',
+        'pytan': 'questions'
+    }
+
+    # Tworzymy jeden wzorzec regex do znalezienia *wszystkich* fraz kluczowych
+    # Będzie on szukał słów ZACZYNAJĄCYCH SIĘ od rdzenia
+    all_stems = stems_to_split + [stem_to_remove]
+    
+    # \b - granica słowa (word boundary), aby nie dopasować "dopouczenie"
+    # \w* - dopasowuje resztę słowa (czyli odmianę)
+    # .replace(' ', r'\s+') - obsługuje frazy wielowyrazowe jak "stan faktyczny"
+    regex_parts = []
+    for stem in all_stems:
+        regex_parts.append(r'\b' + stem.replace(' ', r'\s+') + r'\w*')
+
+    # Łączymy wszystko w jeden wzorzec.
+    # Używamy JEDNEJ grupy przechwytującej (nawiasy zewnętrzne),
+    # aby re.split() zachował separatory (nasze frazy).
+    pattern_str = r'(' + r'|'.join(regex_parts) + r')'
+    
+    # Kompilujemy regex, ignorując wielkość liter (re.IGNORECASE)
+    pattern = re.compile(pattern_str, flags=re.IGNORECASE)
+
+    # Dzielimy tekst. Wynik będzie listą:
+    # ['tekst przed', 'separator1', 'tekst po 1', 'separator2', 'tekst po 2', ...]
+    chunks = pattern.split(text)
+
+    recombined_parts = []
+    langchain_documents = []
+
+    # Obsługa tekstu *przed* pierwszym znalezionym separatorem
+    if chunks[0] and chunks[0].strip():
+        initial_content = chunks[0].strip()
+        recombined_parts.append(initial_content)
+        langchain_documents.append(
+            Document(
+                page_content=initial_content,
+                metadata={'source_phrase': 'initial_content'}
+            )
+        )
+https://htmlpreview.github.io/?https://github.com/dzieciou/pystempel/blob/master/Evaluation.html
+    # Przetwarzamy resztę listy parami (separator, treść)
+    # Zaczynamy od indeksu 1, przeskakujemy co 2
+    for i in range(1, len(chunks), 2):
+        marker = chunks[i]
+        
+        # Sprawdzamy, czy ten separator należy do grupy do usunięcia
+        if re.match(r'\b' + stem_to_remove, marker, flags=re.IGNORECASE):
+            # Jeśli tak, ignorujemy ten marker i jego treść (chunks[i+1])
+            continue
+        
+        # Jeśli nie jest do usunięcia, przetwarzamy go
+        content = chunks[i+1].strip() if (i+1) < len(chunks) else ""
+
+        if not content:
+            continue # Ignorujemy puste sekcje
+
+        # Identyfikujemy kategorię dla metadanych
+        source_phrase = 'unknown'
+        for stem, category in stem_categories.items():
+            if re.match(r'\b' + stem.replace(' ', r'\s+'), marker, flags=re.IGNORECASE):
+                source_phrase = category
+                break
+        
+        # Łączymy marker (frazę) z jego treścią
+        full_chunk_content = f"{marker.strip()}:\n{content}"
+        
+        # 1. Dodajemy do listy połączonych części
+        recombined_parts.append(full_chunk_content)
+        
+        # 2. Tworzymy Dokument Langchain
+        langchain_documents.append(
+            Document(
+                page_content=content, # Można też dać full_chunk_content
+                metadata={'source_phrase': source_phrase, 'marker': marker.strip()}
+            )
+        )
+
+    # Tworzymy finalny, połączony tekst, oddzielając sekcje podwójnym enterem
+    final_recombined_string = "\n\n".join(recombined_parts)
+
+    return final_recombined_string, langchain_documents
+
+
+
+# Note: To run this locally, you may need to install nltk: pip install nltk
+# and potentially download the 'punkt' resource if you use more advanced tokenization:
+# import nltk
+# nltk.download('punkt')
+import nltk
+from nltk.stem.snowball import SnowballStemmer
+from nltk.tokenize import word_tokenize
+
+# Make sure you have the necessary NLTK resources
+nltk.download('punkt')
+https://htmlpreview.github.io/?https://github.com/dzieciou/pystempel/blob/master/Evaluation.html
+def stem_polish_text(text):
+    stemmer = SnowballStemmer("polish")
+    tokens = word_tokenize(text, language="polish")
+    stemmed_words = [stemmer.stem(word) for word in tokens]
+    return ' '.join(stemmed_words)
+
+# Example usage
+polish_text = "Samochody jeżdżą szybko po autostradzie"
+stemmed_text = stem_polish_text(polish_text)
+print(stemmed_text)
+
+import re
+from nltk.stem.snowball import SnowballStemmer
+
+def stem_polish_text(text: str) -> str:
+    """
+    Tokenizes Polish text and performs stemming on each word using the NLTK Snowball Stemmer.
+
+    Args:
+        text (str): The input text in Polish.
+
+    Returns:
+        str: A string containing the stemmed forms of the words from the input text,
+             joined by spaces.
+    """
+    try:
+        # Initialize the Polish Snowball Stemmer.
+        # This is a widely available, rule-based stemmer.
+        stemmer = SnowballStemmer("polish")
+
+        # 1. Simple Tokenization and Lowercasing
+        # We use re.findall to find all continuous sequences of word characters,
+        # which acts as a robust tokenizer, and convert to lowercase for better stemming.
+        words = re.findall(r'\b\w+\b', text.lower())
+
+        # 2. Stem each word in the list
+        stemmed_words = [stemmer.stem(word) for word in words]
+
+        # 3. Join the stemmed words back into a single string
+        return " ".join(stemmed_words)
+
+    except LookupError:
+        # This occurs if the necessary NLTK data (like 'stopwords' or the stemmer itself)
+        # hasn't been downloaded or is missing.
+        print("Error: NLTK resources not found.")
+        print("Please ensure you have installed NLTK and downloaded the necessary data (e.g., 'punkt' or 'stopwords') if using advanced features.")
+        return ""
+    except Exception as e:
+        print(f"An unexpected error occurred during stemming: {e}")
+        return ""
+
+# --- Example Usage ---
+polish_text = "Słowa są kluczowe dla pisania, a studenci muszą czytać dużo literatury pięknej, żeby dobrze pisać."
+
+print("--- Polish Stemmer ---")
+print(f"Original Text:\n'{polish_text}'")
+
+stemmed_text = stem_polish_text(polish_text)
+
+print(f"\nStemmed Text:\n'{stemmed_text}'")
+
+# Example breakdown:
+# 'Słowa' (Words) -> 'słow'
+# 'kluczowe' (key) -> 'kluczow'
+# 'pisania' (writing) -> 'pisani'
+# 'studenci' (students) -> 'student'
+# 'czytać' (to read) -> 'czyt'
+# 'literatury' (literature) -> 'literatur'
+
+
+# --- PRZYKŁAD UŻYCIA ---
+if __name__ == "__main__":
+    
+    # Przykładowy tekst po polsku z różnymi odmianami fraz
+    SAMPLE_POLISH_TEXT = """
+    To jest jakiś tekst wprowadzający, który nie należy do żadnej sekcji.
+
+    Ocena:
+    Ta sekcja dotyczy oceny sytuacji. Analiza jest w toku.
+
+    Stan faktyczny sprawy:
+    Opisujemy, co się wydarzyło. Zdarzenie miało miejsce wczoraj.
+
+    Pouczenie:
+    Ta sekcja zostanie usunięta. Zawiera informacje o prawach i obowiązkach.
+    Nikt nie powinien tego widzieć w finalnym dokumencie.
+
+    Pytania i odpowiedzi:
+    1. Jakie są następne kroki?
+    2. Kto jest odpowiedzialny?
+
+    Oceny końcowej:
+    Tu znajduje się kolejna sekcja oceny, ale w innej formie gramatycznej (Dopełniacz).
+    Powinna zostać zachowana.
+
+    Pouczeniem jest również:
+    Kolejna sekcja do usunięcia, tym razem w narzędniku.
+    """
+
+    print("--- ORYGINALNY TEKST ---")
+    print(SAMPLE_POLISH_TEXT)
+
+    # 1. Przetwarzanie tekstu
+    recombined_text, docs = process_polish_text(SAMPLE_POLISH_TEXT)
+
+    print("\n\n--- TEKST POŁĄCZONY (BEZ 'POUCZENIA') ---")
+    print(recombined_text)
+
+    print("\n\n--- DOKUMENTY WYGENEROWANE DLA LANGCHAIN ---")
+    for doc in docs:
+        print(doc)
+
+    # 2. Przykład dalszego użycia w Langchain (zgodnie z prośbą)
+    if LANGCHAIN_AVAILABLE:
+        print("\n\n--- PRZYKŁAD DALSZEGO PODZIAŁU W LANGCHAIN ---")
+        
+        # Możesz teraz wziąć połączony tekst i podzielić go dalej
+        # na mniejsze fragmenty, jeśli tego potrzebujesz
+        
+        langchain_text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=100,
+            chunk_overlap=20,
+            length_function=len,
+        )
+
+        # Dzielimy połączony tekst
+        split_chunks = langchain_text_splitter.split_text(recombined_text)
+        
+        print(f"Podzielono połączony tekst na {len(split_chunks)} mniejszych fragmentów:")
+        for i, chunk in enumerate(split_chunks):
+            print(f"FRAGMENT {i+1}: '{chunk}'")
+            
+        # Alternatywnie, możesz dzielić każdy Dokument z osobna
+        print("\n--- Podział każdego dokumentu z osobna ---")
+        all_split_docs = langchain_text_splitter.split_documents(docs)
+        print(f"Podzielono {len(docs)} dokumentów na {len(all_split_docs)} mniejszych dokumentów (z zachowaniem metadanych):")
+        for doc in all_split_docs:
+            print(doc)
+
+
+
+
+
+
+
+
+
+
+
+ -*- coding: utf-8 -*-
+"""word_comparison.py
+
+Automatically generated by Colab.
+
+Original file is located at
+    https://colab.research.google.com/drive/1peSg702swiXzfyLi3sjlk0Lle7P_h98q
+"""
+
+# This script provides functions to compare two lists of words,
+# for example, an LLM's output vs. a "correct" answer list.
+#
+# It requires the following Python libraries:
+# pip install sentence-transformers numpy
+
+import numpy as np
+from typing import List, Dict, Any
+from sentence_transformers import SentenceTransformer, util
+
+def compare_exact(llm_output: List[str], correct_answer: List[str]) -> Dict[str, float]:
+    """
+    Compares two lists of words for exact matches using set-based metrics.
+
+    Args:
+        llm_output: A list of words generated by the LLM.
+        correct_answer: The list of "gold standard" or correct words.
+
+    Returns:
+        A dictionary containing precision, recall, and f1_score.
+    """
+    # Convert lists to sets for efficient comparison
+    output_set = set(llm_output)
+    correct_set = set(correct_answer)
+
+    if not output_set and not correct_set:
+        return {"precision": 1.0, "recall": 1.0, "f1_score": 1.0}
+
+    # Calculate intersection (words in both lists)
+    intersection = output_set.intersection(correct_set)
+
+    # Calculate Precision: (Correct words found) / (Total words found)
+    precision = len(intersection) / len(output_set) if output_set else 0.0
+
+    # Calculate Recall: (Correct words found) / (Total correct words)
+    recall = len(intersection) / len(correct_set) if correct_set else 0.0
+
+    # Calculate F1-Score: Harmonic mean of precision and recall
+    f1_score = (
+        (2 * precision * recall) / (precision + recall)
+        if (precision + recall) > 0
+        else 0.0
+    )
+
+    return {
+        "precision": precision,
+        "recall": recall,
+        "f1_score": f1_score,
+        "intersection": list(intersection)
+    }
+
+def compare_semantic_pairwise(
+    llm_output: List[str],
+    correct_answer: List[str],
+    model: SentenceTransformer
+) -> float:
+    """
+    Compares two lists using embeddings, finding the best match for each
+    word in llm_output from the correct_answer list and averaging the scores.
+
+    This answers: "On average, how semantically close is each generated word
+    to its *best* match in the correct list?"
+
+    Args:
+        llm_output: A list of words generated by the LLM.
+        correct_answer: The list of "gold standard" or correct words.
+        model: A loaded SentenceTransformer model.
+
+    Returns:
+        A single float score (0-1) representing the average best similarity.
+    """
+    if not llm_output or not correct_answer:
+        return 0.0
+
+    # Generate embeddings for both lists
+    emb_output = model.encode(llm_output, convert_to_tensor=True)
+    emb_correct = model.encode(correct_answer, convert_to_tensor=True)
+
+    # Compute cosine similarity between all pairs
+    # Shape: (len(llm_output), len(correct_answer))
+    cos_sim_matrix = util.cos_sim(emb_output, emb_correct)
+
+    # For each word in llm_output (each row), find the max similarity
+    # score (its best match in the correct_answer list)
+    max_scores_per_output_word = cos_sim_matrix.max(axis=1).values
+
+    # Average these best scores
+    average_best_similarity = max_scores_per_output_word.mean().item()
+
+    return average_best_similarity
+
+def compare_semantic_sets(
+    llm_output: List[str],
+    correct_answer: List[str],
+    model: SentenceTransformer
+) -> float:
+    """
+    Compares the "overall topic" of two lists of words.
+    It creates an average vector for each list and computes the
+    cosine similarity between them.
+
+    This answers: "How similar is the *overall theme* of the two lists?"
+
+    Args:
+        llm_output: A list of words generated by the LLM.
+        correct_answer: The list of "gold standard" or correct words.
+        model: A loaded SentenceTransformer model.
+
+    Returns:
+        A single float score (0-1) representing the set-level similarity.
+    """
+    if not llm_output or not correct_answer:
+        return 0.0
+
+    # Generate embeddings
+    emb_output = model.encode(llm_output)
+    emb_correct = model.encode(correct_answer)
+
+    # Average the embeddings for each list to get a "topic vector"
+    # Use keepdims=True to maintain 2D shape for util.cos_sim
+    avg_emb_output = np.mean(emb_output, axis=0, keepdims=True)
+    avg_emb_correct = np.mean(emb_correct, axis=0, keepdims=True)
+
+    # Compute the cosine similarity between the two average vectors
+    set_similarity = util.cos_sim(avg_emb_output, avg_emb_correct).item()
+
+    return set_similarity
+
+
+# --- Example Usage ---
+if __name__ == "__main__":
+
+    # Example lists (in Polish)
+    # 'auto' and 'samochód' are synonyms (car)
+    # 'dom' and 'budynek' are related (house, building)
+    # 'niebo' and 'niebieski' are related (sky, blue)
+    llm_output = ['auto', 'szybki', 'czerwony', 'dom', 'niebo']
+    correct_answer = ['samochód', 'szybki', 'budynek', 'niebieski', 'droga']
+
+    print(f"LLM Output:     {llm_output}")
+    print(f"Correct Answer: {correct_answer}\n")
+
+    # --- Method 1: Exact Comparison ---
+    print("--- 1. Exact Comparison ---")
+    exact_scores = compare_exact(llm_output, correct_answer)
+    print(f"Intersection: {exact_scores['intersection']}")
+    print(f"Precision:    {exact_scores['precision']:.4f}")
+    print(f"Recall:       {exact_scores['recall']:.4f}")
+    print(f"F1-Score:     {exact_scores['f1_score']:.4f}")
+    print("\n")
+
+    # --- Method 2 & 3: Semantic Comparison ---
+    # Load a model. 'paraphrase-multilingual-MiniLM-L12-v2' is a good
+    # lightweight model that supports Polish.
+    # This will download the model the first time you run it.
+    print("Loading embedding model (this may take a moment)...")
+    try:
+        model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+        print("Model loaded successfully.\n")
+
+        # --- Method 2: Pairwise Semantic Comparison ---
+        print("--- 2. Semantic Pairwise Comparison ---")
+        pairwise_score = compare_semantic_pairwise(llm_output, correct_answer, model)
+        print(f"Average Best Match Score: {pairwise_score:.4f}")
+        print("(Answers: 'How close is each generated word to its *best* match in the correct list?')\n")
+
+        # --- Method 3: Set Semantic Comparison ---
+        print("--- 3. Semantic Set (Topic) Comparison ---")
+        set_score = compare_semantic_sets(llm_output, correct_answer, model)
+        print(f"Overall Set Similarity Score: {set_score:.4f}")
+        print("(Answers: 'How similar is the *overall theme* of the two lists?')")
+
+    except Exception as e:
+        print(f"Could not load SentenceTransformer model. Error: {e}")
+        print("Please ensure you have an internet connection and the")
+        print("'sentence-transformers' library is installed.")

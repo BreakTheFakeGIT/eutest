@@ -1,0 +1,778 @@
+Dzisiaj
+You said:
+
+I use local LLM model for polish langauage like Bielik. I need to generate output to each question acorrding to create mbbedings. I write a PROMPT like that PROMPT_PIT = """
+"Jesteś ekspertem podatkowym specjalizującym się w podatku dochodowym od osób fizycznych (PIT).
+Tekst wnioskowadcy: {user_text}.
+Twoim zadaniem jest odpowiedzieć na pytania:
+
+Czy wskazano konkretne przepisy prawa podatkowego? Odpowiedz w formacie JSON z kluczem: przepisy.
+Jakie jest 10 słów kluczowych? Odpowiedz w formacie JSON z kluczem: slowa_kluczowe.
+Napisz w 5 zdaniach o co pyta wnioskodawca? Odpowiedz w formacie JSON z kluczem: zdania.
+
+Czy wnioskodawca jest polskim rezydentem podatkowym? Odpowiedz w formacie JSON z kluczem: rezydencja_podatkowa.
+Czy wnioskodawca spełnia warunki rezydencji podatkowej zgodnie z art. 3 ustawy PIT (miejsce zamieszkania, centrum interesów życiowych, długość pobytu)? Odpowiedz w formacie JSON z kluczem: warunki_rezydencji_podatkowej.
+Czy wnioskodawca występuje jako podatnik czy jako płatnik? Odpowiedz w formacie JSON z kluczem: rola_wnioskodawcy.
+Czy wnioskodawca rozlicza podatek we własnym imieniu, czy działa jako płatnik (np. pracodawca, zleceniodawca)? Odpowiedz w formacie JSON z kluczem: sposob_rozliczenia.
+Jakie jest źródło przychodu wnioskodawcy? Odpowiedz w formacie JSON z kluczem: zrodlo_przychodu.
+Czy przychód pochodzi z pracy, emerytury, renty, działalności wykonywanej osobiście, pozarolniczej działalności gospodarczej, działalności rolniczej lub działów specjalnych, najmu, kapitałów pieniężnych, zbycia nieruchomości/ruchomości, z zagranicy. Odpowiedz w formacie JSON z kluczem: rodzaj_przychodu.
+Czy wnioskodawca jest wspólnikiem spółki? Odpowiedz w formacie JSON z kluczem: jest_wspolnikiem_spolki. 
+Określ formę prawną spółki (np. jawna, komandytowa, cywilna) i konsekwencje podatkowe wynikające z uczestnictwa, jeżeli dotyczy. Odpowiedz w formacie JSON z kluczem: forma_prawna_spolki.
+Czy została wskazana forma opodatkowania dochodów/przychodów przez wnioskodawcę? Odpowiedz w formacie JSON z kluczem: forma_opodatkowania.
+Czy wnioskodawca stosuje skalę podatkową, podatek liniowy, ryczałt od przychodów ewidencjonowanych, kartę podatkową, podatek zryczałtowany, zasady ogólne? Odpowiedz w formacie JSON z kluczem: rodzaj_formy_opodatkowania.
+Czy wnioskodawca korzysta z ulg i odliczeń podatkowych? – Zidentyfikuj zastosowane ulgi (np. na dzieci, rehabilitacyjna, termomodernizacyjna, ulga na powrót, na zabytki, mieszkaniowa, dla seniora, na innowacje) oraz ich wpływ na zobowiązanie podatkowe. Odpowiedz w formacie JSON z kluczem: ulgi_i_odliczenia.
+"""
+.    Give me a function  in Python 
+Copilot said:
+Copilot
+Here’s a Python function that uses your PROMPT_PIT template and dynamically inserts the user’s text. It returns the full prompt string, which you can then send to your local LLM (like Bielik) for generating embeddings or answers:
+
+
+
+
+Python
+def build_pit_prompt(user_text: str) -> str:
+    """
+    Generates a structured prompt for a Polish LLM (e.g., Bielik) based on PIT tax expertise.
+    
+    Args:
+        user_text (str): The text provided by the applicant (wnioskodawca).
+    
+    Returns:
+        str: A formatted prompt ready for LLM input.
+    """
+    PROMPT_PIT = """
+Jesteś ekspertem podatkowym specjalizującym się w podatku dochodowym od osób fizycznych (PIT).
+Tekst wnioskodawcy: {user_text}.
+Twoim zadaniem jest odpowiedzieć na pytania:
+
+Czy wskazano konkretne przepisy prawa podatkowego? Odpowiedz w formacie JSON z kluczem: przepisy.
+Jakie jest 10 słów kluczowych? Odpowiedz w formacie JSON z kluczem: slowa_kluczowe.
+Napisz w 5 zdaniach o co pyta wnioskodawca? Odpowiedz w formacie JSON z kluczem: zdania.
+
+Czy wnioskodawca jest polskim rezydentem podatkowym? Odpowiedz w formacie JSON z kluczem: rezydencja_podatkowa.
+Czy wnioskodawca spełnia warunki rezydencji podatkowej zgodnie z art. 3 ustawy PIT (miejsce zamieszkania, centrum interesów życiowych, długość pobytu)? Odpowiedz w formacie JSON z kluczem: warunki_rezydencji_podatkowej.
+Czy wnioskodawca występuje jako podatnik czy jako płatnik? Odpowiedz w formacie JSON z kluczem: rola_wnioskodawcy.
+Czy wnioskodawca rozlicza podatek we własnym imieniu, czy działa jako płatnik (np. pracodawca, zleceniodawca)? Odpowiedz w formacie JSON z kluczem: sposob_rozliczenia.
+Jakie jest źródło przychodu wnioskodawcy? Odpowiedz w formacie JSON z kluczem: zrodlo_przychodu.
+Czy przychód pochodzi z pracy, emerytury, renty, działalności wykonywanej osobiście, pozarolniczej działalności gospodarczej, działalności rolniczej lub działów specjalnych, najmu, kapitałów pieniężnych, zbycia nieruchomości/ruchomości, z zagranicy. Odpowiedz w formacie JSON z kluczem: rodzaj_przychodu.
+Czy wnioskodawca jest wspólnikiem spółki? Odpowiedz w formacie JSON z kluczem: jest_wspolnikiem_spolki. 
+Określ formę prawną spółki (np. jawna, komandytowa, cywilna) i konsekwencje podatkowe wynikające z uczestnictwa, jeżeli dotyczy. Odpowiedz w formacie JSON z kluczem: forma_prawna_spolki.
+Czy została wskazana forma opodatkowania dochodów/przychodów przez wnioskodawcę? Odpowiedz w formacie JSON z kluczem: forma_opodatkowania.
+Czy wnioskodawca stosuje skalę podatkową, podatek liniowy, ryczałt od przychodów ewidencjonowanych, kartę podatkową, podatek zryczałtowany, zasady ogólne? Odpowiedz w formacie JSON z kluczem: rodzaj_formy_opodatkowania.
+Czy wnioskodawca korzysta z ulg i odliczeń podatkowych? – Zidentyfikuj zastosowane ulgi (np. na dzieci, rehabilitacyjna, termomodernizacyjna, ulga na powrót, na zabytki, mieszkaniowa, dla seniora, na innowacje) oraz ich wpływ na zobowiązanie podatkowe. Odpowiedz w formacie JSON z kluczem: ulgi_i_odliczenia.
+"""
+    return PROMPT_PIT.format(user_text=user_text)
+
+Pokaż mniej
+✅ How to use:
+
+
+
+Python
+user_text = "Pracuję w Niemczech, ale mam rodzinę w Polsce. Czy muszę rozliczać PIT w Polsce?"
+prompt = build_pit_prompt(user_text)
+print(prompt)
+This will produce a full structured prompt ready for your Bielik model.
+
+Do you want me to extend this function so that:
+
+It calls your local LLM API and returns the JSON answers?
+Or splits the output into embeddings for each question automatically?
+Or maybe wrap it in a FastAPI endpoint for easy integration?
+
+
+
+
+
+
+
+You said:
+
+Add embedding generation per question
+Copilot said:
+Copilot
+Here’s an extended version of the function that splits the prompt into individual questions, generates embeddings for each question, and returns them in a structured way. I’ll assume you have an embedding model endpoint (local or via API) that accepts text and returns a vector.
+
+
+
+
+Python
+import requests
+from typing import Dict, List
+
+def build_pit_prompt_and_embeddings(user_text: str, embedding_api_url: str) -> Dict[str, Dict]:
+    """
+    Builds a PIT prompt, splits it into questions, and generates embeddings for each question.
+    
+    Args:
+        user_text (str): Text provided by the applicant.
+        embedding_api_url (str): URL of the embedding model API (e.g., Bielik or other local LLM).
+    
+    Returns:
+        Dict[str, Dict]: Dictionary with question text and its embedding vector.
+    """
+    
+    # Define questions as keys for clarity
+    questions = {
+        "przepisy": "Czy wskazano konkretne przepisy prawa podatkowego?",
+        "slowa_kluczowe": "Jakie jest 10 słów kluczowych?",
+        "zdania": "Napisz w 5 zdaniach o co pyta wnioskodawca?",
+        "rezydencja_podatkowa": "Czy wnioskodawca jest polskim rezydentem podatkowym?",
+        "warunki_rezydencji_podatkowej": "Czy wnioskodawca spełnia warunki rezydencji podatkowej zgodnie z art. 3 ustawy PIT?",
+        "rola_wnioskodawcy": "Czy wnioskodawca występuje jako podatnik czy jako płatnik?",
+        "sposob_rozliczenia": "Czy wnioskodawca rozlicza podatek we własnym imieniu, czy działa jako płatnik?",
+        "zrodlo_przychodu": "Jakie jest źródło przychodu wnioskodawcy?",
+        "rodzaj_przychodu": "Czy przychód pochodzi z pracy, emerytury, renty, działalności wykonywanej osobiście, działalności gospodarczej, najmu, kapitałów pieniężnych, zbycia nieruchomości, z zagranicy?",
+        "jest_wspolnikiem_spolki": "Czy wnioskodawca jest wspólnikiem spółki?",
+        "forma_prawna_spolki": "Określ formę prawną spółki i konsekwencje podatkowe wynikające z uczestnictwa.",
+        "forma_opodatkowania": "Czy została wskazana forma opodatkowania dochodów/przychodów przez wnioskodawcę?",
+        "rodzaj_formy_opodatkowania": "Czy wnioskodawca stosuje skalę podatkową, podatek liniowy, ryczałt, kartę podatkową?",
+        "ulgi_i_odliczenia": "Czy wnioskodawca korzysta z ulg i odliczeń podatkowych?"
+    }
+    
+    embeddings_result = {}
+    
+    for key, question in questions.items():
+        # Combine user text with question for context
+        text_for_embedding = f"Tekst wnioskodawcy: {user_text}. Pytanie: {question}"
+        
+        # Call embedding API (example: POST request)
+        response = requests.post(embedding_api_url, json={"text": text_for_embedding})
+        
+        if response.status_code == 200:
+            embedding_vector = response.json().get("embedding", [])
+        else:
+            embedding_vector = []
+        
+        embeddings_result[key] = {
+            "question": question,
+            "embedding": embedding_vector
+        }
+    
+    return embeddings_result
+
+Pokaż więcej wierszy
+✅ How to use:
+
+
+
+Python
+user_text = "Pracuję w Niemczech, ale mam rodzinę w Polsce. Czy muszę rozliczać PIT w Polsce?"
+embedding_api_url = "http://localhost:8000/embed"  # Example endpoint for Bielik embeddings
+
+result = build_pit_prompt_and_embeddings(user_text, embedding_api_url)
+
+# Example output structure:
+# {
+#   "przepisy": {"question": "...", "embedding": [0.123, 0.456, ...]},
+#   "slowa_kluczowe": {"question": "...", "embedding": [...]},
+#   ...
+# }
+🔍 What this does:
+Splits your big prompt into atomic questions.
+Adds context (user_text) to each question for better embeddings.
+Calls your embedding API for each question.
+Returns a dictionary with embeddings per question (ready for indexing in a vector DB like Pinecone, Qdrant, Weaviate).
+Do you want me to extend this further to: ✅ Also generate the full JSON answers from Bielik for each question?
+✅ Or store embeddings + answers in a database (e.g., SQLite or PostgreSQL) for retrieval?
+✅ Or wrap everything in a FastAPI microservice for easy integration?
+
+
+
+
+
+
+
+
+You said:
+
+Generate JSON answers from Bielik
+Copilot said:
+Copilot
+Here’s a full solution that generates JSON answers from Bielik for each question and also creates embeddings per question. This assumes you have two endpoints:
+
+llm_api_url → Bielik model for text generation (answers in JSON).
+embedding_api_url → Bielik or another model for embeddings.
+✅ Complete Python Function
+
+
+
+Python
+import requests
+from typing import Dict, Any
+
+def process_pit_request(user_text: str, llm_api_url: str, embedding_api_url: str) -> Dict[str, Any]:
+    """
+    For a given user_text, generate JSON answers for PIT questions using Bielik LLM
+    and create embeddings for each question.
+    
+    Args:
+        user_text (str): Text provided by the applicant.
+        llm_api_url (str): URL of Bielik LLM API for generating answers.
+        embedding_api_url (str): URL of embedding model API.
+    
+    Returns:
+        Dict[str, Any]: Dictionary with answers and embeddings per question.
+    """
+    
+    # Define PIT questions
+    questions = {
+        "przepisy": "Czy wskazano konkretne przepisy prawa podatkowego?",
+        "slowa_kluczowe": "Jakie jest 10 słów kluczowych?",
+        "zdania": "Napisz w 5 zdaniach o co pyta wnioskodawca?",
+        "rezydencja_podatkowa": "Czy wnioskodawca jest polskim rezydentem podatkowym?",
+        "warunki_rezydencji_podatkowej": "Czy wnioskodawca spełnia warunki rezydencji podatkowej zgodnie z art. 3 ustawy PIT?",
+        "rola_wnioskodawcy": "Czy wnioskodawca występuje jako podatnik czy jako płatnik?",
+        "sposob_rozliczenia": "Czy wnioskodawca rozlicza podatek we własnym imieniu, czy działa jako płatnik?",
+        "zrodlo_przychodu": "Jakie jest źródło przychodu wnioskodawcy?",
+        "rodzaj_przychodu": "Czy przychód pochodzi z pracy, emerytury, renty, działalności wykonywanej osobiście, działalności gospodarczej, najmu, kapitałów pieniężnych, zbycia nieruchomości, z zagranicy?",
+        "jest_wspolnikiem_spolki": "Czy wnioskodawca jest wspólnikiem spółki?",
+        "forma_prawna_spolki": "Określ formę prawną spółki i konsekwencje podatkowe wynikające z uczestnictwa.",
+        "forma_opodatkowania": "Czy została wskazana forma opodatkowania dochodów/przychodów przez wnioskodawcę?",
+        "rodzaj_formy_opodatkowania": "Czy wnioskodawca stosuje skalę podatkową, podatek liniowy, ryczałt, kartę podatkową?",
+        "ulgi_i_odliczenia": "Czy wnioskodawca korzysta z ulg i odliczeń podatkowych?"
+    }
+    
+    results = {}
+    
+    for key, question in questions.items():
+        # Combine user text with question for context
+        context_text = f"Tekst wnioskodawcy: {user_text}. Pytanie: {question}"
+        
+        # 1. Generate JSON answer using Bielik LLM
+        llm_payload = {
+            "prompt": f"{context_text}\nOdpowiedz w formacie JSON z kluczem: {key}.",
+            "max_tokens": 500
+        }
+        llm_response = requests.post(llm_api_url, json=llm_payload)
+        answer_json = llm_response.json().get("text", "{}") if llm_response.status_code == 200 else "{}"
+        
+        # 2. Generate embedding for this question + context
+        embed_response = requests.post(embedding_api_url, json={"text": context_text})
+        embedding_vector = embed_response.json().get("embedding", []) if embed_response.status_code == 200 else []
+        
+        # Store results
+        results[key] = {
+            "question": question,
+            "answer": answer_json,
+            "embedding": embedding_vector
+        }
+    
+    return results
+
+Pokaż mniej
+✅ Example Usage:
+
+
+
+Python
+user_text = "Pracuję w Niemczech, ale mam rodzinę w Polsce. Czy muszę rozliczać PIT w Polsce?"
+llm_api_url = "http://localhost:8000/generate"      # Bielik LLM endpoint
+embedding_api_url = "http://localhost:8000/embed"   # Bielik embedding endpoint
+
+output = process_pit_request(user_text, llm_api_url, embedding_api_url)
+
+print(output["przepisy"]["answer"])  # JSON answer for 'przepisy'
+print(len(output["przepisy"]["embedding"]))  # Embedding vector length
+✅ Output Structure:
+
+
+
+JSON
+{
+  "przepisy": {
+    "question": "Czy wskazano konkretne przepisy prawa podatkowego?",
+    "answer": "{\"przepisy\": \"art. 3 ustawy o PIT\"}",
+    "embedding": [0.123, 0.456, ...]
+  },
+  "slowa_kluczowe": {
+    "question": "...",
+    "answer": "{\"slowa_kluczowe\": [\"PIT\", \"rezydencja\", ...]}",
+    "embedding": [...]
+  }
+}
+🔍 Next Steps:
+Do you want me to: ✅ Add parallel processing (async) for speed?
+✅ Wrap this in FastAPI so you can call /process and get JSON + embeddings in one request?
+✅ Or store results in a vector DB (like Qdrant or Pinecone) for semantic search?
+
+Which one should I build for you?
+
+
+
+
+
+
+
+
+You said:
+
+I use Ollama. Can you rewrite ?
+Copilot said:
+Copilot
+Here’s how you can rewrite the solution for Ollama, which runs locally and exposes a simple CLI or HTTP API for models like Bielik.
+
+✅ Ollama-Based Python Function
+Ollama provides an HTTP API at http://localhost:11434/api/generate for text generation and http://localhost:11434/api/embeddings for embeddings.
+
+Here’s the full implementation:
+
+
+
+
+Python
+import requests
+from typing import Dict, Any
+
+def process_pit_request_ollama(user_text: str, model_name: str = "bielik") -> Dict[str, Any]:
+    """
+    Uses Ollama to generate JSON answers for PIT questions and embeddings per question.
+    
+    Args:
+        user_text (str): Text provided by the applicant.
+        model_name (str): Ollama model name (e.g., 'bielik').
+    
+    Returns:
+        Dict[str, Any]: Dictionary with answers and embeddings per question.
+    """
+    
+    # Ollama API endpoints
+    ollama_generate_url = "http://localhost:11434/api/generate"
+    ollama_embed_url = "http://localhost:11434/api/embeddings"
+    
+    # Define PIT questions
+    questions = {
+        "przepisy": "Czy wskazano konkretne przepisy prawa podatkowego?",
+        "slowa_kluczowe": "Jakie jest 10 słów kluczowych?",
+        "zdania": "Napisz w 5 zdaniach o co pyta wnioskodawca?",
+        "rezydencja_podatkowa": "Czy wnioskodawca jest polskim rezydentem podatkowym?",
+        "warunki_rezydencji_podatkowej": "Czy wnioskodawca spełnia warunki rezydencji podatkowej zgodnie z art. 3 ustawy PIT?",
+        "rola_wnioskodawcy": "Czy wnioskodawca występuje jako podatnik czy jako płatnik?",
+        "sposob_rozliczenia": "Czy wnioskodawca rozlicza podatek we własnym imieniu, czy działa jako płatnik?",
+        "zrodlo_przychodu": "Jakie jest źródło przychodu wnioskodawcy?",
+        "rodzaj_przychodu": "Czy przychód pochodzi z pracy, emerytury, renty, działalności wykonywanej osobiście, działalności gospodarczej, najmu, kapitałów pieniężnych, zbycia nieruchomości, z zagranicy?",
+        "jest_wspolnikiem_spolki": "Czy wnioskodawca jest wspólnikiem spółki?",
+        "forma_prawna_spolki": "Określ formę prawną spółki i konsekwencje podatkowe wynikające z uczestnictwa.",
+        "forma_opodatkowania": "Czy została wskazana forma opodatkowania dochodów/przychodów przez wnioskodawcę?",
+        "rodzaj_formy_opodatkowania": "Czy wnioskodawca stosuje skalę podatkową, podatek liniowy, ryczałt, kartę podatkową?",
+        "ulgi_i_odliczenia": "Czy wnioskodawca korzysta z ulg i odliczeń podatkowych?"
+    }
+    
+    results = {}
+    
+    for key, question in questions.items():
+        context_text = f"Tekst wnioskodawcy: {user_text}. Pytanie: {question}\nOdpowiedz w formacie JSON z kluczem: {key}."
+        
+        # 1. Generate JSON answer using Ollama
+        llm_payload = {
+            "model": model_name,
+            "prompt": context_text,
+            "options": {"temperature": 0.2}
+        }
+        llm_response = requests.post(ollama_generate_url, json=llm_payload)
+        answer_text = llm_response.json().get("response", "{}") if llm_response.status_code == 200 else "{}"
+        
+        # 2. Generate embedding for this question + context
+        embed_payload = {
+            "model": model_name,
+            "input": context_text
+        }
+        embed_response = requests.post(ollama_embed_url, json=embed_payload)
+        embedding_vector = embed_response.json().get("embedding", []) if embed_response.status_code == 200 else []
+        
+        results[key] = {
+            "question": question,
+            "answer": answer_text,
+            "embedding": embedding_vector
+        }
+    
+    return results
+
+Pokaż mniej
+✅ Example Usage:
+
+
+
+Python
+user_text = "Pracuję w Niemczech, ale mam rodzinę w Polsce. Czy muszę rozliczać PIT w Polsce?"
+output = process_pit_request_ollama(user_text, model_name="bielik")
+
+print(output["przepisy"]["answer"])  # JSON answer for 'przepisy'
+print(len(output["przepisy"]["embedding"]))  # Embedding vector length
+
+✅ Output Structure:
+
+
+
+JSON
+{
+  "przepisy": {
+    "question": "Czy wskazano konkretne przepisy prawa podatkowego?",
+    "answer": "{\"przepisy\": \"art. 3 ustawy o PIT\"}",
+    "embedding": [0.123, 0.456, ...]
+  },
+  ...
+}
+
+🔍 Next Steps:
+Do you want me to: ✅ Add async + parallel processing for speed?
+✅ Wrap this in FastAPI so you can call /process and get JSON + embeddings in one request?
+✅ Or store results in Qdrant / Weaviate / PostgreSQL for semantic search?
+
+Which one should I build for you?
+
+
+
+
+
+
+
+
+You said:
+
+Add async processing for speed
+Copilot said:
+Copilot
+Here’s the async + parallel Ollama version using aiohttp for speed. This will send all requests concurrently instead of sequentially, which is much faster when you have 14+ questions.
+
+✅ Async Ollama Implementation
+
+
+
+Python
+import aiohttp
+import asyncio
+from typing import Dict, Any
+
+questions = {
+    "przepisy": "Czy wskazano konkretne przepisy prawa podatkowego?",
+    "slowa_kluczowe": "Jakie jest 10 słów kluczowych?",
+    "zdania": "Napisz w 5 zdaniach o co pyta wnioskodawca?",
+    "rezydencja_podatkowa": "Czy wnioskodawca jest polskim rezydentem podatkowym?",
+    "warunki_rezydencji_podatkowej": "Czy wnioskodawca spełnia warunki rezydencji podatkowej zgodnie z art. 3 ustawy PIT?",
+    "rola_wnioskodawcy": "Czy wnioskodawca występuje jako podatnik czy jako płatnik?",
+    "sposob_rozliczenia": "Czy wnioskodawca rozlicza podatek we własnym imieniu, czy działa jako płatnik?",
+    "zrodlo_przychodu": "Jakie jest źródło przychodu wnioskodawcy?",
+    "rodzaj_przychodu": "Czy przychód pochodzi z pracy, emerytury, renty, działalności wykonywanej osobiście, działalności gospodarczej, najmu, kapitałów pieniężnych, zbycia nieruchomości, z zagranicy?",
+    "jest_wspolnikiem_spolki": "Czy wnioskodawca jest wspólnikiem spółki?",
+    "forma_prawna_spolki": "Określ formę prawną spółki i konsekwencje podatkowe wynikające z uczestnictwa.",
+    "forma_opodatkowania": "Czy została wskazana forma opodatkowania dochodów/przychodów przez wnioskodawcę?",
+    "rodzaj_formy_opodatkowania": "Czy wnioskodawca stosuje skalę podatkową, podatek liniowy, ryczałt, kartę podatkową?",
+    "ulgi_i_odliczenia": "Czy wnioskodawca korzysta z ulg i odliczeń podatkowych?"
+}
+
+async def fetch_llm_and_embedding(session, model_name, user_text, key, question):
+    context_text = f"Tekst wnioskodawcy: {user_text}. Pytanie: {question}\nOdpowiedz w formacie JSON z kluczem: {key}."
+
+    # Prepare payloads
+    llm_payload = {"model": model_name, "prompt": context_text, "options": {"temperature": 0.2}}
+    embed_payload = {"model": model_name, "input": context_text}
+
+    # Send both requests concurrently
+    llm_task = session.post("http://localhost:11434/api/generate", json=llm_payload)
+    embed_task = session.post("http://localhost:11434/api/embeddings", json=embed_payload)
+
+    llm_response, embed_response = await asyncio.gather(llm_task, embed_task)
+
+    answer_text = (await llm_response.json()).get("response", "{}") if llm_response.status == 200 else "{}"
+    embedding_vector = (await embed_response.json()).get("embedding", []) if embed_response.status == 200 else []
+
+    return key, {"question": question, "answer": answer_text, "embedding": embedding_vector}
+
+async def process_pit_request_async(user_text: str, model_name: str = "bielik") -> Dict[str, Any]:
+    async with aiohttp.ClientSession() as session:
+        tasks = [fetch_llm_and_embedding(session, model_name, user_text, key, q) for key, q in questions.items()]
+        results_list = await asyncio.gather(*tasks)
+        return dict(results_list)
+
+# Example usage
+if __name__ == "__main__":
+    user_text = "Pracuję w Niemczech, ale mam rodzinę w Polsce. Czy muszę rozliczać PIT w Polsce?"
+    output = asyncio.run(process_pit_request_async(user_text))
+    print(output["przepisy"]["answer"])
+    print(len(output["przepisy"]["embedding"]))
+
+Pokaż mniej
+✅ Why this is fast:
+All 14 requests run in parallel (LLM + embedding per question).
+Uses asyncio.gather for concurrency.
+Ideal for local Ollama because it handles multiple requests efficiently.
+✅ Output Structure:
+Same as before:
+
+
+
+
+JSON
+{
+  "przepisy": {
+    "question": "...",
+    "answer": "{\"przepisy\": \"art. 3 ustawy o PIT\"}",
+    "embedding": [0.123, 0.456, ...]
+  },
+  ...
+}
+🔍 Next Steps:
+Do you want me to: ✅ Wrap this async version in FastAPI so you can call /process and get everything in one HTTP request?
+✅ Or add Qdrant integration to store embeddings + answers for semantic search?
+✅ Or add streaming responses from Ollama for real-time output?
+
+Which one should I build for you?
+
+
+
+
+
+
+
+
+You said:
+
+Add streaming responses from Ollama
+Copilot said:
+Copilot
+Here’s how you can add streaming responses from Ollama in the async version. Ollama supports Server-Sent Events (SSE) for streaming, so we’ll use aiohttp to read chunks as they arrive.
+
+✅ Async Streaming Ollama Implementation
+
+
+
+Python
+import aiohttp
+import asyncio
+from typing import Dict, Any
+
+questions = {
+    "przepisy": "Czy wskazano konkretne przepisy prawa podatkowego?",
+    "slowa_kluczowe": "Jakie jest 10 słów kluczowych?",
+    "zdania": "Napisz w 5 zdaniach o co pyta wnioskodawca?",
+    "rezydencja_podatkowa": "Czy wnioskodawca jest polskim rezydentem podatkowym?",
+    "warunki_rezydencji_podatkowej": "Czy wnioskodawca spełnia warunki rezydencji podatkowej zgodnie z art. 3 ustawy PIT?",
+    "rola_wnioskodawcy": "Czy wnioskodawca występuje jako podatnik czy jako płatnik?",
+    "sposob_rozliczenia": "Czy wnioskodawca rozlicza podatek we własnym imieniu, czy działa jako płatnik?",
+    "zrodlo_przychodu": "Jakie jest źródło przychodu wnioskodawcy?",
+    "rodzaj_przychodu": "Czy przychód pochodzi z pracy, emerytury, renty, działalności wykonywanej osobiście, działalności gospodarczej, najmu, kapitałów pieniężnych, zbycia nieruchomości, z zagranicy?",
+    "jest_wspolnikiem_spolki": "Czy wnioskodawca jest wspólnikiem spółki?",
+    "forma_prawna_spolki": "Określ formę prawną spółki i konsekwencje podatkowe wynikające z uczestnictwa.",
+    "forma_opodatkowania": "Czy została wskazana forma opodatkowania dochodów/przychodów przez wnioskodawcę?",
+    "rodzaj_formy_opodatkowania": "Czy wnioskodawca stosuje skalę podatkową, podatek liniowy, ryczałt, kartę podatkową?",
+    "ulgi_i_odliczenia": "Czy wnioskodawca korzysta z ulg i odliczeń podatkowych?"
+}
+
+async def stream_llm_response(session, model_name, context_text):
+    """
+    Streams response from Ollama using SSE.
+    """
+    url = "http://localhost:11434/api/generate"
+    payload = {"model": model_name, "prompt": context_text, "stream": True}
+
+    async with session.post(url, json=payload) as resp:
+        streamed_text = ""
+        async for line in resp.content:
+            chunk = line.decode("utf-8").strip()
+            if chunk.startswith("{") and "response" in chunk:
+                # Each SSE chunk is JSON
+                try:
+                    data = eval(chunk)  # safe because Ollama sends JSON-like chunks
+                    streamed_text += data.get("response", "")
+                except Exception:
+                    pass
+        return streamed_text
+
+async def fetch_llm_and_embedding(session, model_name, user_text, key, question):
+    context_text = f"Tekst wnioskodawcy: {user_text}. Pytanie: {question}\nOdpowiedz w formacie JSON z kluczem: {key}."
+
+    # Stream LLM response
+    answer_text = await stream_llm_response(session, model_name, context_text)
+
+    # Embedding request
+    embed_payload = {"model": model_name, "input": context_text}
+    embed_resp = await session.post("http://localhost:11434/api/embeddings", json=embed_payload)
+    embed_json = await embed_resp.json()
+    embedding_vector = embed_json.get("embedding", [])
+
+    return key, {"question": question, "answer": answer_text, "embedding": embedding_vector}
+
+async def process_pit_request_streaming(user_text: str, model_name: str = "bielik") -> Dict[str, Any]:
+    async with aiohttp.ClientSession() as session:
+        tasks = [fetch_llm_and_embedding(session, model_name, user_text, key, q) for key, q in questions.items()]
+        results_list = await asyncio.gather(*tasks)
+        return dict(results_list)
+
+# Example usage
+if __name__ == "__main__":
+    user_text = "Pracuję w Niemczech, ale mam rodzinę w Polsce. Czy muszę rozliczać PIT w Polsce?"
+    output = asyncio.run(process_pit_request_streaming(user_text))
+    print(output["przepisy"]["answer"])
+
+Pokaż więcej wierszy
+✅ What’s New:
+Streaming enabled: stream=True in Ollama request.
+Reads chunks as they arrive and concatenates them.
+Still runs all questions in parallel for speed.
+✅ Why this is powerful:
+You can start showing partial answers immediately in a UI.
+Works perfectly with FastAPI WebSocket or Server-Sent Events for real-time dashboards.
+🔍 Next Steps:
+Do you want me to: ✅ Wrap this in FastAPI with WebSocket streaming so your frontend gets live updates?
+✅ Or add Qdrant integration for storing embeddings + answers for semantic search?
+✅ Or combine streaming + database storage for a full pipeline?
+
+Which one should I build for you?
+
+
+
+
+
+
+
+
+You said:
+
+Wrap this in FastAPI with WebSocket
+Copilot said:
+Copilot
+Here’s how you can wrap the async streaming Ollama solution into a FastAPI app with WebSocket so your frontend can receive real-time streamed answers for each question.
+
+✅ Full FastAPI WebSocket Implementation
+
+
+
+Python
+from fastapi import FastAPI, WebSocket
+import aiohttp
+import asyncio
+from typing import Dict, Any
+
+app = FastAPI()
+
+questions = {
+    "przepisy": "Czy wskazano konkretne przepisy prawa podatkowego?",
+    "slowa_kluczowe": "Jakie jest 10 słów kluczowych?",
+    "zdania": "Napisz w 5 zdaniach o co pyta wnioskodawca?",
+    "rezydencja_podatkowa": "Czy wnioskodawca jest polskim rezydentem podatkowym?",
+    "warunki_rezydencji_podatkowej": "Czy wnioskodawca spełnia warunki rezydencji podatkowej zgodnie z art. 3 ustawy PIT?",
+    "rola_wnioskodawcy": "Czy wnioskodawca występuje jako podatnik czy jako płatnik?",
+    "sposob_rozliczenia": "Czy wnioskodawca rozlicza podatek we własnym imieniu, czy działa jako płatnik?",
+    "zrodlo_przychodu": "Jakie jest źródło przychodu wnioskodawcy?",
+    "rodzaj_przychodu": "Czy przychód pochodzi z pracy, emerytury, renty, działalności wykonywanej osobiście, działalności gospodarczej, najmu, kapitałów pieniężnych, zbycia nieruchomości, z zagranicy?",
+    "jest_wspolnikiem_spolki": "Czy wnioskodawca jest wspólnikiem spółki?",
+    "forma_prawna_spolki": "Określ formę prawną spółki i konsekwencje podatkowe wynikające z uczestnictwa.",
+    "forma_opodatkowania": "Czy została wskazana forma opodatkowania dochodów/przychodów przez wnioskodawcę?",
+    "rodzaj_formy_opodatkowania": "Czy wnioskodawca stosuje skalę podatkową, podatek liniowy, ryczałt, kartę podatkową?",
+    "ulgi_i_odliczenia": "Czy wnioskodawca korzysta z ulg i odliczeń podatkowych?"
+}
+
+async def stream_llm_response(session, model_name, context_text, websocket, key):
+    """
+    Streams response from Ollama and sends chunks to WebSocket.
+    """
+    url = "http://localhost:11434/api/generate"
+    payload = {"model": model_name, "prompt": context_text, "stream": True}
+
+    async with session.post(url, json=payload) as resp:
+        streamed_text = ""
+        async for line in resp.content:
+            chunk = line.decode("utf-8").strip()
+            if chunk.startswith("{") and "response" in chunk:
+                try:
+                    data = eval(chunk)  # Ollama sends JSON-like chunks
+                    part = data.get("response", "")
+                    streamed_text += part
+                    # Send partial update to client
+                    await websocket.send_json({"type": "partial", "key": key, "chunk": part})
+                except Exception:
+                    pass
+        return streamed_text
+
+async def fetch_llm_and_embedding(session, model_name, user_text, key, question, websocket):
+    context_text = f"Tekst wnioskodawcy: {user_text}. Pytanie: {question}\nOdpowiedz w formacie JSON z kluczem: {key}."
+
+    # Stream LLM response
+    answer_text = await stream_llm_response(session, model_name, context_text, websocket, key)
+
+    # Embedding request
+    embed_payload = {"model": model_name, "input": context_text}
+    embed_resp = await session.post("http://localhost:11434/api/embeddings", json=embed_payload)
+    embed_json = await embed_resp.json()
+    embedding_vector = embed_json.get("embedding", [])
+
+    # Send final result
+    await websocket.send_json({"type": "final", "key": key, "answer": answer_text, "embedding": embedding_vector})
+
+@app.websocket("/ws/process")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    data = await websocket.receive_json()
+    user_text = data.get("user_text", "")
+    model_name = data.get("model_name", "bielik")
+
+    async with aiohttp.ClientSession() as session:
+        tasks = [fetch_llm_and_embedding(session, model_name, user_text, key, q, websocket) for key, q in questions.items()]
+        await asyncio.gather(*tasks)
+
+    await websocket.send_json({"type": "done"})
+
+
+Pokaż więcej wierszy
+✅ How It Works:
+Client sends: {"user_text": "...", "model_name": "bielik"} via WebSocket.
+For each question:
+Streams partial chunks from Ollama to the client (type: "partial").
+Sends final answer + embedding when done (type: "final").
+When all tasks finish: sends {"type": "done"}.
+✅ Example Frontend (JavaScript):
+
+
+
+JavaScript
+const ws = new WebSocket("ws://localhost:8000/ws/process");
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({ user_text: "Pracuję w Niemczech...", model_name: "bielik" }));
+};
+
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  if (msg.type === "partial") {
+    console.log(`Streaming [${msg.key}]: ${msg.chunk}`);
+  } else if (msg.type === "final") {
+    console.log(`Final [${msg.key}]:`, msg.answer, msg.embedding);
+  } else if (msg.type === "done") {
+    console.log("All questions processed.");
+  }
+};
+
+Pokaż więcej wierszy
+✅ Benefits:
+Real-time streaming for each question.
+Parallel processing for speed.
+Embeddings included in final messages.
+Ready for React/Vue dashboards or any WebSocket client.
+🔍 Next Steps:
+Do you want me to: ✅ Add authentication & rate limiting for production?
+✅ Add Qdrant integration to store embeddings + answers for semantic search?
+✅ Or make it multi-user with session IDs for concurrent clients?
+
+Which one should I build for you?
+
+
+
+
+
+
+
+
+
+Add authentication and rate limiting
+
+Add Qdrant integration for search
+
+Make it multi-user with session IDs
+
+Wyślij wiadomość do funkcji Copilot
+
+
+
+Zawartość wygenerow

@@ -1,0 +1,1056 @@
+Dzisiaj
+You said:
+
+Write a class in Python to :   llm = OllamaLLM(model="bielik") 
+ llm.invoke("test") 
+Copilot said:
+Copilot
+Here’s a simple Python class that wraps the functionality you described using OllamaLLM:
+
+
+
+
+Python
+from langchain_ollama import OllamaLLM
+
+class BielikLLMWrapper:
+    def __init__(self, model_name="bielik"):
+        # Initialize the Ollama LLM with the given model name
+        self.llm = OllamaLLM(model=model_name)
+
+    def invoke(self, prompt: str):
+        # Send the prompt to the model and return the response
+        return self.llm.invoke(prompt)
+
+
+# Example usage:
+if __name__ == "__main__":
+    llm_wrapper = BielikLLMWrapper()
+    response = llm_wrapper.invoke("test")
+    print(response)
+
+Pokaż więcej wierszy
+✅ Explanation:
+OllamaLLM: Comes from the langchain_ollama integration.
+The class BielikLLMWrapper initializes the model (bielik by default).
+The invoke method sends a prompt to the model and returns its output.
+Example usage shows how to create an instance and call invoke("test").
+Do you want me to extend this class to include:
+
+Streaming responses?
+Error handling and retries?
+Support for changing the model dynamically?
+Or even integration with LangChain chains?
+
+
+
+
+
+
+
+You said:
+
+Support dynamic model changes
+Copilot said:
+Copilot
+Here’s an updated version of the class that supports dynamic model changes:
+
+
+
+
+Python
+from langchain_ollama import OllamaLLM
+
+class BielikLLMWrapper:
+    def __init__(self, model_name="bielik"):
+        # Initialize with a default model
+        self.model_name = model_name
+        self.llm = OllamaLLM(model=self.model_name)
+
+    def invoke(self, prompt: str):
+        # Send the prompt to the current model
+        return self.llm.invoke(prompt)
+
+    def change_model(self, new_model: str):
+        # Dynamically change the model
+        self.model_name = new_model
+        self.llm = OllamaLLM(model=self.model_name)
+        print(f"Model changed to: {self.model_name}")
+
+Pokaż więcej wierszy
+✅ How it works:
+change_model(new_model) lets you switch to any other model (e.g., "llama2", "mistral", etc.) without creating a new instance.
+After calling change_model(), all subsequent invoke() calls use the new model.
+Example usage:
+
+
+
+
+Python
+if __name__ == "__main__":
+    llm_wrapper = BielikLLMWrapper()
+    print(llm_wrapper.invoke("Hello from Bielik!"))
+
+    # Change model dynamically
+    llm_wrapper.change_model("llama2")
+    print(llm_wrapper.invoke("Hello from Llama2!"))
+Do you want me to extend this further to include:
+
+Listing available models (via Ollama API)?
+Validation if the model exists before switching?
+Optional streaming responses?
+
+
+
+
+
+
+
+You said:
+
+Add support for streaming responses
+Copilot said:
+Copilot
+Here’s the enhanced version of the class with streaming response support added:
+
+
+
+
+Python
+from langchain_ollama import OllamaLLM
+
+class BielikLLMWrapper:
+    def __init__(self, model_name="bielik"):
+        # Initialize with a default model
+        self.model_name = model_name
+        self.llm = OllamaLLM(model=self.model_name)
+
+    def invoke(self, prompt: str):
+        """Send the prompt to the current model and return the full response."""
+        return self.llm.invoke(prompt)
+
+    def stream_invoke(self, prompt: str):
+        """Stream the response from the model in real-time."""
+        for chunk in self.llm.stream(prompt):
+            # Each chunk is a piece of the response
+            print(chunk, end="", flush=True)
+        print()  # New line after streaming ends
+
+    def change_model(self, new_model: str):
+        """Dynamically change the model."""
+        self.model_name = new_model
+        self.llm = OllamaLLM(model=self.model_name)
+        print(f"Model changed to: {self.model_name}")
+
+Pokaż mniej
+✅ Key Additions:
+stream_invoke(prompt):
+Uses self.llm.stream(prompt) to yield chunks of text as they arrive.
+Prints them in real-time for a live experience.
+Keeps the original invoke() for full-response mode.
+change_model() still works as before.
+Example usage:
+
+
+
+
+Python
+if __name__ == "__main__":
+    llm_wrapper = BielikLLMWrapper()
+    
+    # Normal invocation
+    print("Full response:")
+    print(llm_wrapper.invoke("Hello from Bielik!"))
+
+    # Streaming invocation
+    print("\nStreaming response:")
+    llm_wrapper.stream_invoke("Write a short poem about AI.")
+
+    # Change model dynamically
+    llm_wrapper.change_model("llama2")
+    llm_wrapper.stream_invoke("Explain quantum computing in simple terms.")
+
+
+Pokaż więcej wierszy
+Do you want me to extend this further to:
+
+✅ Include error handling and retries for streaming?
+✅ Add callback support (e.g., process chunks instead of just printing)?
+✅ Make it async-compatible for non-blocking streaming?
+
+
+
+
+
+
+
+You said:
+
+Make streaming support callbacks
+Copilot said:
+Copilot
+Here’s the updated version of the class with streaming support using callbacks so you can process chunks dynamically instead of just printing them:
+
+✅ Python Class with Callback Support for Streaming
+
+
+
+Python
+from langchain_ollama import OllamaLLM
+from typing import Callable
+
+class BielikLLMWrapper:
+    def __init__(self, model_name="bielik"):
+        # Initialize with a default model
+        self.model_name = model_name
+        self.llm = OllamaLLM(model=self.model_name)
+
+    def invoke(self, prompt: str):
+        """Send the prompt to the current model and return the full response."""
+        return self.llm.invoke(prompt)
+
+    def stream_invoke(self, prompt: str, callback: Callable[[str], None]):
+        """
+        Stream the response from the model in real-time.
+        :param prompt: The input text for the model.
+        :param callback: A function that processes each chunk of text.
+        """
+        for chunk in self.llm.stream(prompt):
+            callback(chunk)  # Pass each chunk to the callback
+
+    def change_model(self, new_model: str):
+        """Dynamically change the model."""
+        self.model_name = new_model
+        self.llm = OllamaLLM(model=self.model_name)
+        print(f"Model changed to: {self.model_name}")
+
+
+Pokaż więcej wierszy
+✅ Example Usage with Callback
+
+
+
+Python
+def print_chunk(chunk: str):
+    # Simple callback that prints each chunk
+    print(chunk, end="", flush=True)
+
+if __name__ == "__main__":
+    llm_wrapper = BielikLLMWrapper()
+
+    # Normal invocation
+    print("Full response:")
+    print(llm_wrapper.invoke("Hello from Bielik!"))
+
+    # Streaming with callback
+    print("\nStreaming response:")
+    llm_wrapper.stream_invoke("Write a short poem about AI.", callback=print_chunk)
+
+    # Change model dynamically
+    llm_wrapper.change_model("llama2")
+    print("\nStreaming response from llama2:")
+    llm_wrapper.stream_invoke("Explain quantum computing in simple terms.", callback=print_chunk)
+
+Pokaż więcej wierszy
+✅ Why This is Better:
+Callback flexibility: Instead of hardcoding print(), you can:
+Append chunks to a list.
+Update a UI element.
+Send chunks over a WebSocket.
+Keeps the class clean and reusable.
+Do you want me to extend this further to:
+
+✅ Support multiple callbacks (e.g., logging + UI update)?
+✅ Add async streaming with callbacks for non-blocking apps?
+✅ Include error handling and retry logic for streaming failures?
+
+
+
+
+
+
+
+You said:
+
+Add support for multiple callbacks
+Copilot said:
+Copilot
+Here’s the updated version of the class with support for multiple callbacks during streaming:
+
+✅ Python Class with Multiple Callbacks for Streaming
+
+
+
+Python
+from langchain_ollama import OllamaLLM
+from typing import Callable, List
+
+class BielikLLMWrapper:
+    def __init__(self, model_name="bielik"):
+        # Initialize with a default model
+        self.model_name = model_name
+        self.llm = OllamaLLM(model=self.model_name)
+
+    def invoke(self, prompt: str):
+        """Send the prompt to the current model and return the full response."""
+        return self.llm.invoke(prompt)
+
+    def stream_invoke(self, prompt: str, callbacks: List[Callable[[str], None]]):
+        """
+        Stream the response from the model in real-time.
+        :param prompt: The input text for the model.
+        :param callbacks: A list of functions that process each chunk of text.
+        """
+        for chunk in self.llm.stream(prompt):
+            for callback in callbacks:
+                callback(chunk)  # Pass each chunk to all callbacks
+
+    def change_model(self, new_model: str):
+        """Dynamically change the model."""
+        self.model_name = new_model
+        self.llm = OllamaLLM(model=self.model_name)
+        print(f"Model changed to: {self.model_name}")
+
+Pokaż więcej wierszy
+✅ Example Usage with Multiple Callbacks
+
+
+
+Python
+def print_chunk(chunk: str):
+    print(chunk, end="", flush=True)
+
+def log_chunk(chunk: str):
+    with open("stream_log.txt", "a", encoding="utf-8") as f:
+        f.write(chunk)
+
+def collect_chunks(chunk: str):
+    collected.append(chunk)
+
+if __name__ == "__main__":
+    llm_wrapper = BielikLLMWrapper()
+    collected = []
+
+    # Normal invocation
+    print("Full response:")
+    print(llm_wrapper.invoke("Hello from Bielik!"))
+
+    # Streaming with multiple callbacks
+    print("\nStreaming response:")
+    llm_wrapper.stream_invoke(
+        "Write a short poem about AI.",
+        callbacks=[print_chunk, log_chunk, collect_chunks]
+    )
+
+
+
+Pokaż więcej wierszy
+✅ Why This is Powerful:
+You can print, log, and store chunks simultaneously.
+Perfect for UI updates, analytics, or real-time dashboards.
+Keeps the design flexible and clean.
+Do you want me to extend this further to:
+
+✅ Add async streaming with multiple callbacks for non-blocking apps?
+✅ Include error handling and retry logic for streaming failures?
+✅ Add a built-in default callback system (e.g., print + log automatically)?
+
+
+
+
+
+
+
+You said:
+
+Add async streaming support
+Copilot said:
+Copilot
+Here’s the async-enabled version of the class with multiple callbacks for streaming:
+
+✅ Async Streaming with Multiple Callbacks
+
+
+
+Python
+import asyncio
+from typing import Callable, List
+from langchain_ollama import OllamaLLM
+
+class BielikLLMWrapper:
+    def __init__(self, model_name="bielik"):
+        self.model_name = model_name
+        self.llm = OllamaLLM(model=self.model_name)
+
+    def invoke(self, prompt: str):
+        """Synchronous full response."""
+        return self.llm.invoke(prompt)
+
+    async def stream_invoke_async(self, prompt: str, callbacks: List[Callable[[str], None]]):
+        """
+        Asynchronously stream the response from the model.
+        :param prompt: The input text for the model.
+        :param callbacks: A list of functions to process each chunk.
+        """
+        async for chunk in self.llm.astream(prompt):  # Use async streaming
+            for callback in callbacks:
+                # Run callbacks in executor to avoid blocking event loop
+                await asyncio.get_event_loop().run_in_executor(None, callback, chunk)
+
+    def change_model(self, new_model: str):
+        """Change the model dynamically."""
+        self.model_name = new_model
+        self.llm = OllamaLLM(model=self.model_name)
+        print(f"Model changed to: {self.model_name}")
+
+
+Pokaż więcej wierszy
+✅ Example Usage (Async)
+
+
+
+Python
+import asyncio
+
+def print_chunk(chunk: str):
+    print(chunk, end="", flush=True)
+
+def log_chunk(chunk: str):
+    with open("stream_log.txt", "a", encoding="utf-8") as f:
+        f.write(chunk)
+
+async def main():
+    llm_wrapper = BielikLLMWrapper()
+    print("Full response:")
+    print(llm_wrapper.invoke("Hello from Bielik!"))
+
+    print("\nAsync streaming response:")
+    await llm_wrapper.stream_invoke_async(
+        "Write a short poem about AI.",
+        callbacks=[print_chunk, log_chunk]
+    )
+
+    llm_wrapper.change_model("llama2")
+    print("\nStreaming response from llama2:")
+    await llm_wrapper.stream_invoke_async(
+        "Explain quantum computing in simple terms.",
+        callbacks=[print_chunk]
+    )
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+Pokaż więcej wierszy
+✅ Key Features:
+Uses async for chunk in self.llm.astream(prompt) for non-blocking streaming.
+Executes callbacks in a thread pool (run_in_executor) so heavy operations don’t block the event loop.
+Supports multiple callbacks (print, log, UI updates, etc.).
+Do you want me to extend this further to:
+
+✅ Add built-in default callbacks (e.g., print + log automatically)?
+✅ Include error handling and retry logic for async streaming?
+✅ Provide a hybrid class that supports both sync and async seamlessly?
+
+
+
+
+
+
+
+You said:
+
+Provide a hybrid sync/async class
+Copilot said:
+Copilot
+Here’s a hybrid class that supports both synchronous and asynchronous streaming, with multiple callbacks:
+
+✅ Hybrid Sync/Async LLM Wrapper
+
+
+
+Python
+import asyncio
+from typing import Callable, List
+from langchain_ollama import OllamaLLM
+
+class BielikLLMWrapper:
+    def __init__(self, model_name="bielik"):
+        self.model_name = model_name
+        self.llm = OllamaLLM(model=self.model_name)
+
+    # -------------------------
+    # Synchronous Methods
+    # -------------------------
+    def invoke(self, prompt: str):
+        """Synchronous full response."""
+        return self.llm.invoke(prompt)
+
+    def stream_invoke(self, prompt: str, callbacks: List[Callable[[str], None]]):
+        """Synchronous streaming with multiple callbacks."""
+        for chunk in self.llm.stream(prompt):
+            for callback in callbacks:
+                callback(chunk)
+
+    # -------------------------
+    # Asynchronous Methods
+    # -------------------------
+    async def stream_invoke_async(self, prompt: str, callbacks: List[Callable[[str], None]]):
+        """Asynchronous streaming with multiple callbacks."""
+        async for chunk in self.llm.astream(prompt):
+            # Run callbacks in executor to avoid blocking
+            await asyncio.gather(*[
+                asyncio.get_event_loop().run_in_executor(None, cb, chunk)
+                for cb in callbacks
+            ])
+
+    # -------------------------
+    # Model Management
+    # -------------------------
+    def change_model(self, new_model: str):
+        """Change the model dynamically."""
+        self.model_name = new_model
+        self.llm = OllamaLLM(model=self.model_name)
+        print(f"Model changed to: {self.model_name}")
+
+Pokaż więcej wierszy
+✅ Example Usage (Hybrid)
+
+
+
+Python
+import asyncio
+
+def print_chunk(chunk: str):
+    print(chunk, end="", flush=True)
+
+def log_chunk(chunk: str):
+    with open("stream_log.txt", "a", encoding="utf-8") as f:
+        f.write(chunk)
+
+async def main():
+    llm_wrapper = BielikLLMWrapper()
+
+    # Sync full response
+    print("Full response:")
+    print(llm_wrapper.invoke("Hello from Bielik!"))
+
+    # Sync streaming
+    print("\nSync streaming response:")
+    llm_wrapper.stream_invoke("Write a short poem about AI.", callbacks=[print_chunk, log_chunk])
+
+    # Async streaming
+    print("\nAsync streaming response:")
+    await llm_wrapper.stream_invoke_async("Explain quantum computing in simple terms.", callbacks=[print_chunk])
+
+    # Change model dynamically
+    llm_wrapper.change_model("llama2")
+    print("\nAsync streaming response from llama2:")
+    await llm_wrapper.stream_invoke_async("Give me a summary of neural networks.", callbacks=[print_chunk])
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+Pokaż więcej wierszy
+✅ Why This is Great:
+Hybrid design: Works in both sync and async contexts.
+Multiple callbacks: Flexible for logging, UI updates, analytics.
+Dynamic model switching: Easy to change models at runtime.
+Non-blocking async streaming: Perfect for web apps or real-time dashboards.
+🔥 Next step:
+Do you want me to add built-in default callbacks (e.g., print + log automatically if none provided) and error handling with retries for both sync and async modes? Or should I also include type hints for better IDE support and docstrings for clarity?
+
+
+
+
+
+
+
+
+You said:
+
+Include error handling with retries
+Copilot said:
+Copilot
+Here’s the hybrid sync/async class with error handling and retry logic added for both modes:
+
+✅ Hybrid LLM Wrapper with Retries & Error Handling
+
+
+
+Python
+import asyncio
+import time
+from typing import Callable, List
+from langchain_ollama import OllamaLLM
+
+class BielikLLMWrapper:
+    def __init__(self, model_name="bielik", max_retries=3, retry_delay=2):
+        self.model_name = model_name
+        self.llm = OllamaLLM(model=self.model_name)
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+
+    # -------------------------
+    # Retry Helper
+    # -------------------------
+    def _retry(self, func, *args, **kwargs):
+        """Generic retry logic for sync operations."""
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                print(f"[Attempt {attempt}] Error: {e}")
+                if attempt < self.max_retries:
+                    print(f"Retrying in {self.retry_delay}s...")
+                    time.sleep(self.retry_delay)
+                else:
+                    raise
+
+    async def _retry_async(self, func, *args, **kwargs):
+        """Generic retry logic for async operations."""
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                print(f"[Attempt {attempt}] Async Error: {e}")
+                if attempt < self.max_retries:
+                    print(f"Retrying in {self.retry_delay}s...")
+                    await asyncio.sleep(self.retry_delay)
+                else:
+                    raise
+
+    # -------------------------
+    # Synchronous Methods
+    # -------------------------
+    def invoke(self, prompt: str):
+        """Synchronous full response with retries."""
+        return self._retry(self.llm.invoke, prompt)
+
+    def stream_invoke(self, prompt: str, callbacks: List[Callable[[str], None]]):
+        """Synchronous streaming with retries and multiple callbacks."""
+        def stream_func():
+            for chunk in self.llm.stream(prompt):
+                for callback in callbacks:
+                    callback(chunk)
+        return self._retry(stream_func)
+
+    # -------------------------
+    # Asynchronous Methods
+    # -------------------------
+    async def stream_invoke_async(self, prompt: str, callbacks: List[Callable[[str], None]]):
+        """Async streaming with retries and multiple callbacks."""
+        async def stream_func():
+            async for chunk in self.llm.astream(prompt):
+                await asyncio.gather(*[
+                    asyncio.get_event_loop().run_in_executor(None, cb, chunk)
+                    for cb in callbacks
+                ])
+        return await self._retry_async(stream_func)
+
+    # -------------------------
+    # Model Management
+    # -------------------------
+    def change_model(self, new_model: str):
+        """Change the model dynamically."""
+        self.model_name = new_model
+        self.llm = OllamaLLM(model=self.model_name)
+        print(f"Model changed to: {self.model_name}")
+
+Pokaż więcej wierszy
+✅ Example Usage
+
+
+
+Python
+import asyncio
+
+def print_chunk(chunk: str):
+    print(chunk, end="", flush=True)
+
+def log_chunk(chunk: str):
+    with open("stream_log.txt", "a", encoding="utf-8") as f:
+        f.write(chunk)
+
+async def main():
+    llm_wrapper = BielikLLMWrapper(max_retries=3, retry_delay=2)
+
+    # Sync full response with retries
+    print("Full response:")
+    print(llm_wrapper.invoke("Hello from Bielik!"))
+
+    # Sync streaming with retries
+    print("\nSync streaming response:")
+    llm_wrapper.stream_invoke("Write a short poem about AI.", callbacks=[print_chunk, log_chunk])
+
+    # Async streaming with retries
+    print("\nAsync streaming response:")
+    await llm_wrapper.stream_invoke_async("Explain quantum computing in simple terms.", callbacks=[print_chunk])
+
+    # Change model dynamically
+    llm_wrapper.change_model("llama2")
+    print("\nAsync streaming response from llama2:")
+    await llm_wrapper.stream_invoke_async("Give me a summary of neural networks.", callbacks=[print_chunk])
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+Pokaż więcej wierszy
+✅ Features Added:
+Retries for both sync and async (configurable max_retries and retry_delay).
+Error handling: Prints error messages and retries automatically.
+Hybrid design: Works in synchronous and asynchronous contexts.
+Multiple callbacks supported for streaming.
+🔥 Next step:
+Do you want me to add built-in default callbacks (e.g., print + log if none provided) and type hints + docstrings for better IDE support? Or should I also include timeout handling for streaming operations?
+
+
+
+
+
+
+
+
+You said:
+
+Add timeout handling for streaming
+Copilot said:
+Copilot
+Here’s the hybrid sync/async class with retries, error handling, and timeout support for streaming:
+
+✅ Hybrid LLM Wrapper with Timeout Handling
+
+
+
+Python
+import asyncio
+import time
+from typing import Callable, List, Optional
+from langchain_ollama import OllamaLLM
+
+class BielikLLMWrapper:
+    def __init__(self, model_name="bielik", max_retries=3, retry_delay=2, timeout: Optional[int] = None):
+        """
+        :param model_name: Default model name.
+        :param max_retries: Number of retry attempts.
+        :param retry_delay: Delay between retries in seconds.
+        :param timeout: Timeout for streaming operations in seconds.
+        """
+        self.model_name = model_name
+        self.llm = OllamaLLM(model=self.model_name)
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+        self.timeout = timeout
+
+    # -------------------------
+    # Retry Helpers
+    # -------------------------
+    def _retry(self, func, *args, **kwargs):
+        """Generic retry logic for sync operations."""
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                print(f"[Attempt {attempt}] Error: {e}")
+                if attempt < self.max_retries:
+                    print(f"Retrying in {self.retry_delay}s...")
+                    time.sleep(self.retry_delay)
+                else:
+                    raise
+
+    async def _retry_async(self, func, *args, **kwargs):
+        """Generic retry logic for async operations."""
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                print(f"[Attempt {attempt}] Async Error: {e}")
+                if attempt < self.max_retries:
+                    print(f"Retrying in {self.retry_delay}s...")
+                    await asyncio.sleep(self.retry_delay)
+                else:
+                    raise
+
+    # -------------------------
+    # Synchronous Methods
+    # -------------------------
+    def invoke(self, prompt: str):
+        """Synchronous full response with retries."""
+        return self._retry(self.llm.invoke, prompt)
+
+    def stream_invoke(self, prompt: str, callbacks: List[Callable[[str], None]]):
+        """Synchronous streaming with timeout and retries."""
+        def stream_func():
+            start_time = time.time()
+            for chunk in self.llm.stream(prompt):
+                if self.timeout and (time.time() - start_time) > self.timeout:
+                    raise TimeoutError("Streaming operation timed out.")
+                for callback in callbacks:
+                    callback(chunk)
+        return self._retry(stream_func)
+
+    # -------------------------
+    # Asynchronous Methods
+    # -------------------------
+    async def stream_invoke_async(self, prompt: str, callbacks: List[Callable[[str], None]]):
+        """Async streaming with timeout and retries."""
+        async def stream_func():
+            start_time = time.time()
+            async for chunk in self.llm.astream(prompt):
+                if self.timeout and (time.time() - start_time) > self.timeout:
+                    raise TimeoutError("Async streaming operation timed out.")
+                await asyncio.gather(*[
+                    asyncio.get_event_loop().run_in_executor(None, cb, chunk)
+                    for cb in callbacks
+                ])
+        return await self._retry_async(stream_func)
+
+    # -------------------------
+    # Model Management
+    # -------------------------
+    def change_model(self, new_model: str):
+        """Change the model dynamically."""
+        self.model_name = new_model
+        self.llm = OllamaLLM(model=self.model_name)
+        print(f"Model changed to: {self.model_name}")
+
+Pokaż więcej wierszy
+✅ Example Usage with Timeout
+
+
+
+Python
+import asyncio
+
+def print_chunk(chunk: str):
+    print(chunk, end="", flush=True)
+
+def log_chunk(chunk: str):
+    with open("stream_log.txt", "a", encoding="utf-8") as f:
+        f.write(chunk)
+
+async def main():
+    llm_wrapper = BielikLLMWrapper(max_retries=3, retry_delay=2, timeout=10)
+
+    # Sync full response
+    print("Full response:")
+    print(llm_wrapper.invoke("Hello from Bielik!"))
+
+    # Sync streaming with timeout
+    print("\nSync streaming response:")
+    try:
+        llm_wrapper.stream_invoke("Write a short poem about AI.", callbacks=[print_chunk, log_chunk])
+    except TimeoutError as e:
+        print(f"Timeout occurred: {e}")
+
+    # Async streaming with timeout
+    print("\nAsync streaming response:")
+    try:
+        await llm_wrapper.stream_invoke_async("Explain quantum computing in simple terms.", callbacks=[print_chunk])
+    except TimeoutError as e:
+        print(f"Timeout occurred: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+Pokaż więcej wierszy
+✅ Features Now Included:
+Hybrid sync/async support.
+Retries with configurable delay.
+Timeout handling for streaming (both sync and async).
+Multiple callbacks for flexible processing.
+Dynamic model switching.
+🔥 Next step:
+Do you want me to add built-in default callbacks (e.g., print if none provided) and type hints + docstrings for full clarity? Or should I also include cancellation support for async streaming (so you can stop mid-stream)?
+
+
+
+
+
+
+
+
+You said:
+
+Add support for custom retry logic
+Copilot said:
+Copilot
+Here’s the hybrid sync/async class with custom retry logic support added, along with all previous features (timeouts, error handling, dynamic model switching, multiple callbacks):
+
+✅ Hybrid LLM Wrapper with Custom Retry Logic
+
+
+
+Python
+import asyncio
+import time
+from typing import Callable, List, Optional
+
+from langchain_ollama import OllamaLLM
+
+class BielikLLMWrapper:
+    def __init__(
+        self,
+        model_name: str = "bielik",
+        max_retries: int = 3,
+        retry_delay: int = 2,
+        timeout: Optional[int] = None,
+        retry_strategy: Optional[Callable[[int, Exception], bool]] = None
+    ):
+        """
+        :param model_name: Default model name.
+        :param max_retries: Number of retry attempts.
+        :param retry_delay: Delay between retries in seconds.
+        :param timeout: Timeout for streaming operations in seconds.
+        :param retry_strategy: Custom function to decide retry behavior.
+                               Signature: (attempt_number, exception) -> bool
+                               Return True to retry, False to stop.
+        """
+        self.model_name = model_name
+        self.llm = OllamaLLM(model=self.model_name)
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+        self.timeout = timeout
+        self.retry_strategy = retry_strategy
+
+    # -------------------------
+    # Retry Helpers
+    # -------------------------
+    def _retry(self, func, *args, **kwargs):
+        """Generic retry logic for sync operations with custom strategy."""
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                print(f"[Attempt {attempt}] Error: {e}")
+                if self.retry_strategy:
+                    should_retry = self.retry_strategy(attempt, e)
+                else:
+                    should_retry = attempt < self.max_retries
+                if should_retry:
+                    print(f"Retrying in {self.retry_delay}s...")
+                    time.sleep(self.retry_delay)
+                else:
+                    raise
+
+    async def _retry_async(self, func, *args, **kwargs):
+        """Generic retry logic for async operations with custom strategy."""
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                print(f"[Attempt {attempt}] Async Error: {e}")
+                if self.retry_strategy:
+                    should_retry = self.retry_strategy(attempt, e)
+                else:
+                    should_retry = attempt < self.max_retries
+                if should_retry:
+                    print(f"Retrying in {self.retry_delay}s...")
+                    await asyncio.sleep(self.retry_delay)
+                else:
+                    raise
+
+    # -------------------------
+    # Synchronous Methods
+    # -------------------------
+    def invoke(self, prompt: str):
+        """Synchronous full response with retries."""
+        return self._retry(self.llm.invoke, prompt)
+
+    def stream_invoke(self, prompt: str, callbacks: List[Callable[[str], None]]):
+        """Synchronous streaming with timeout and retries."""
+        def stream_func():
+            start_time = time.time()
+            for chunk in self.llm.stream(prompt):
+                if self.timeout and (time.time() - start_time) > self.timeout:
+                    raise TimeoutError("Streaming operation timed out.")
+                for callback in callbacks:
+                    callback(chunk)
+        return self._retry(stream_func)
+
+    # -------------------------
+    # Asynchronous Methods
+    # -------------------------
+    async def stream_invoke_async(self, prompt: str, callbacks: List[Callable[[str], None]]):
+        """Async streaming with timeout and retries."""
+        async def stream_func():
+            start_time = time.time()
+            async for chunk in self.llm.astream(prompt):
+                if self.timeout and (time.time() - start_time) > self.timeout:
+                    raise TimeoutError("Async streaming operation timed out.")
+                await asyncio.gather(*[
+                    asyncio.get_event_loop().run_in_executor(None, cb, chunk)
+                    for cb in callbacks
+                ])
+        return await self._retry_async(stream_func)
+
+    # -------------------------
+    # Model Management
+    # -------------------------
+    def change_model(self, new_model: str):
+        """Change the model dynamically."""
+        self.model_name = new_model
+        self.llm = OllamaLLM(model=self.model_name)
+        print(f"Model changed to: {self.model_name}")
+
+Pokaż mniej
+✅ Example Usage with Custom Retry Logic
+
+
+
+Python
+import asyncio
+
+def print_chunk(chunk: str):
+    print(chunk, end="", flush=True)
+
+def log_chunk(chunk: str):
+    with open("stream_log.txt", "a", encoding="utf-8") as f:
+        f.write(chunk)
+
+# Custom retry strategy: retry only on network errors
+def custom_retry_strategy(attempt: int, exception: Exception) -> bool:
+    if "network" in str(exception).lower() and attempt < 5:
+        return True
+    return False
+
+async def main():
+    llm_wrapper = BielikLLMWrapper(
+        max_retries=5,
+        retry_delay=3,
+        timeout=10,
+        retry_strategy=custom_retry_strategy
+    )
+
+    # Sync full response
+    print("Full response:")
+    print(llm_wrapper.invoke("Hello from Bielik!"))
+
+    # Sync streaming
+    print("\nSync streaming response:")
+    try:
+        llm_wrapper.stream_invoke("Write a short poem about AI.", callbacks=[print_chunk, log_chunk])
+    except TimeoutError as e:
+        print(f"Timeout occurred: {e}")
+
+    # Async streaming
+    print("\nAsync streaming response:")
+    try:
+        await llm_wrapper.stream_invoke_async("Explain quantum computing in simple terms.", callbacks=[print_chunk])
+    except TimeoutError as e:
+        print(f"Timeout occurred: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+Pokaż więcej wierszy
+✅ What’s New:
+Custom retry logic via retry_strategy:
+Function signature: (attempt_number, exception) -> bool.
+Decide dynamically whether to retry based on error type or attempt count.
+Still supports:
+Hybrid sync/async.
+Timeout handling.
+Multiple callbacks.
+Dynamic model switching.
+🔥 Next step:
+Do you want me to add built-in default callbacks (print/log) if none are provided, and full docstrings + type hints for IDE support? Or should I also include cancellation support for async streaming (stop mid-stream gracefully)?

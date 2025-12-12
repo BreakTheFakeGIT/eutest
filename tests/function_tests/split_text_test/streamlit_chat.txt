@@ -1,0 +1,972 @@
+I'm building app using Streamlit.
+Additional I use local polish Ollama model, LangChain and FastAPI, database PostgreSQL.
+I'm using Psycopg 3 with asyncio instead of SQLAlchemy.
+I'm working with polish text inputs (long text 3000 words), vector embeddings, and RAG (Retrieval-Augmented Generation). 
+My output is only simple 15 rows table with columns name id,tax type, date, link and cosinus similarity.
+Important
+1) each rows of the table have got score like - dislike it means the rows is useful.
+2) global summarize score: like dislike and field with description. 
+3) insert scored to database 
+
+Python
+import streamlit as st
+import asyncio
+import psycopg
+from psycopg.rows import dict_row
+
+# Async DB insert function
+async def insert_scores(data, summary, description):
+    async with await psycopg.AsyncConnection.connect("dbname=yourdb user=youruser password=yourpass host=localhost") as conn:
+        async with conn.cursor() as cur:
+            for row in data:
+                await cur.execute(
+                    """
+                    INSERT INTO scored_results (id, name, tax_type, date, link, similarity, score)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (row['id'], row['name'], row['tax_type'], row['date'], row['link'], row['similarity'], row['score'])
+                )
+            await cur.execute(
+                """
+                INSERT INTO global_summary (likes, dislikes, description)
+                VALUES (%s, %s, %s)
+                """,
+                (summary['likes'], summary['dislikes'], description)
+            )
+        await conn.commit()
+
+# Sample data
+rows = [
+    {"id": 1, "name": "Firma A", "tax_type": "VAT", "date": "2025-10-01", "link": "http://example.com/1", "similarity": 0.91},
+    {"id": 2, "name": "Firma B", "tax_type": "CIT", "date": "2025-09-15", "link": "http://example.com/2", "similarity": 0.87},
+    # Add more rows as needed
+]
+
+st.title("Wyniki RAG - Ocena i Podsumowanie")
+
+# Table with scoring
+scored_rows = []
+likes = 0
+dislikes = 0
+
+for row in rows:
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        st.write(f"**{row['name']}** | {row['tax_type']} | {row['date']} | [Link]({imilarity: {row['similarity']:.2f}")
+    with col2:
+        score = st.radio(f"Oceń ID {row['id']}", ["Brak", "Lubię", "Nie lubię"], key=row['id'])
+        if score == "Lubię":
+            likes += 1
+            row['score'] = "like"
+        elif score == "Nie lubię":
+            dislikes += 1
+            row['score'] = "dislike"
+        else:
+            row['score'] = None
+    scored_rows.append(row)
+
+# Global summary
+st.subheader("Podsumowanie globalne")
+st.write(f"👍 Lubię: {likes} | 👎 Nie lubię: {dislikes}")
+description = st.text_area("Opis podsumowania")
+
+# Submit button
+if st.button("Zapisz do bazy danych"):
+    asyncio.run(insert_scores(scored_rows, {"likes": likes, "dislikes": dislikes}, description))
+    st.success("Dane zapisane pomyślnie!")
+
+
+
+
+SQL
+CREATE TABLE scored_results (
+    id INT,
+    name TEXT,
+    tax_type TEXT,
+    date DATE,
+    link TEXT,
+    similarity FLOAT,
+    score TEXT
+);
+
+CREATE TABLE global_summary (
+    likes INT,
+    dislikes INT,
+    description TEXT
+);
+
+
+Python
+from langchain.chat_models import ChatOllama
+from langchain.embeddings import OllamaEmbeddings
+from langchain.vectorstores import FAISS  # or PGVector
+from langchain.chains import RetrievalQA
+from langchain.schema import Document
+
+# Load local Ollama model
+llm = ChatOllama(model="mistral", temperature=0.3)
+
+# Embedding model
+embedding_model = OllamaEmbeddings(model="mistral")
+
+# Load vector store (example with FAISS)
+vector_store = FAISS.load_local("faiss_index", embeddings=embedding_model)
+
+# Retriever
+retriever = vector_store.as_retriever(search_kwargs={"k": 15})
+
+# RAG chain
+rag_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever, return_source_documents=True)
+
+
+
+Python
+st.subheader("Wprowadź tekst (do 3000 słów)")
+user_input = st.text_area("Tekst wejściowy", height=300)
+
+if st.button("Uruchom RAG"):
+    with st.spinner("Przetwarzanie..."):
+        result = rag_chain.invoke(user_input)
+        st.write("### Odpowiedź:")
+        st.write(result['result'])
+
+        # Show source documents
+        st.write("### Źródła:")
+        table_data = []
+        for i, doc in enumerate(result['source_documents']):
+            table_data.append({
+                "id": i + 1,
+                "name": doc.metadata.get("name", f"Dokument {i+1}"),
+                "tax_type": doc.metadata.get("tax_type", "Brak"),
+                "date": doc.metadata.get("date", "Brak"),
+                "link": doc.metadata.get("link", "#"),
+                "similarity": doc.metadata.get("similarity", 0.0)
+            })
+
+        # Display table with scoring
+        scored_rows = []
+        likes = 0
+        dislikes = 0
+
+        for row in table_data:
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.write(f"**{row['name']}** | {row['tax_type']} | {row['date']} | [Link]({imilarity: {row['similarity']:.2f}")
+            with col2:
+                score = st.radio(f"Oceń ID {row['id']}", ["Brak", "Lubię", "Nie lubię"], key=row['id'])
+                if score == "Lubię":
+                    likes += 1
+                    row['score'] = "like"
+                elif score == "Nie lubię":
+                    dislikes += 1
+                    row['score'] = "dislike"
+                else:
+                    row['score'] = None
+            scored_rows.append(row)
+
+        st.subheader("Podsumowanie globalne")
+        st.write(f"👍 Lubię: {likes} | 👎 Nie lubię: {dislikes}")
+        description = st.text_area("Opis podsumowania")
+
+        if st.button("Zapisz wyniki"):
+            asyncio.run(insert_scores(scored_rows, {"likes": likes, "dislikes": dislikes}, description))
+            st.success("Wyniki zapisane!")
+``
+
+
+SQL
+CREATE EXTENSION IF NOT EXISTS vector;
+Create a table to store documents and their embeddings:
+
+
+
+SQL
+CREATE TABLE documents (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    embedding VECTOR(768), -- or 1024 depending on your model
+    name TEXT,
+    tax_type TEXT,
+    date DATE,
+    link TEXT
+);
+``
+
+
+Python
+from langchain.vectorstores.pgvector import PGVector
+from langchain.embeddings import OllamaEmbeddings
+# Embedding model
+embedding_model = OllamaEmbeddings(model="mistral")
+
+# PGVector connection
+CONNECTION_STRING = "postgresql+psycopg://youruser:yourpass@localhost:5432/yourdb"
+
+# Initialize PGVector store
+vector_store = PGVector(
+    connection_string=CONNECTION_STRING,
+    embedding_function=embedding_model,
+    collection_name="documents"
+)
+
+# Retriever
+retriever = vector_store.as_retriever(search_kwargs={"k": 15})
+
+
+Python
+from langchain.schema import Document
+
+docs = [
+    Document(
+        page_content="Polski tekst o podatkach...",
+        metadata={
+            "name": "Firma A",
+            "tax_type": "VAT",
+            "date": "2025-10-01",
+            "link": "http://example.com/1"
+        }
+    ),
+    # Add more documents
+]
+
+vector_store.add_documents(docs)
+``
+
+
+Python
+from langchain.chains import RetrievalQA
+from langchain.chat_models import ChatOllama
+llm = ChatOllama(model="mistral", temperature=0.3)
+
+rag_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    retriever=retriever,
+    return_source_documents=True
+)
+
+result = rag_chain.invoke("Jakie są obowiązki podatkowe firmy?")
+
+
+Python
+import os
+import asyncio
+import psycopg
+from langchain.embeddings import OllamaEmbeddings
+
+# Directory with Polish text files
+DOCUMENTS_DIR = "polish_documents"
+
+# PostgreSQL connection parameters
+DB_PARAMS = {
+    "dbname": "yourdb",
+    "user": "youruser",
+    "password": "yourpass",
+    "host": "localhost",
+    "port": 5432
+}
+
+# Initialize embedding model
+embedding_model = OllamaEmbeddings(model="mistral")
+
+async def migrate_documents():
+    async with await psycopg.AsyncConnection.connect(**DB_PARAMS) as conn:
+        async with conn.cursor() as cur:
+            # Enable PGVector extension
+            await cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+
+            # Create table if not exists
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS documents (
+                    id SERIAL PRIMARY KEY,
+                    content TEXT,
+                    embedding VECTOR(768),
+                    name TEXT,
+                    tax_type TEXT,
+                    date DATE,
+                    link TEXT
+                );
+            """)
+
+            # Process each file
+            for filename in os.listdir(DOCUMENTS_DIR):
+                if filename.endswith(".txt"):
+                    path = os.path.join(DOCUMENTS_DIR, filename)
+                    with open(path, "r", encoding="utf-8") as f:
+                        content = f.read()
+
+                    # Generate embedding
+                    embedding = embedding_model.embed_query(content)
+
+                    # Example metadata extraction
+                    name = filename.replace(".txt", "")
+                    tax_type = "VAT" if "vat" in filename.lower() else "CIT"
+                    date = "2025-01-01"
+                    link = f"http://example.com/{name}"
+
+                    # Insert into database
+                    await cur.execute("""
+                        INSERT INTO documents (content, embedding, name, tax_type, date, link)
+                        VALUES (%s, %s, %s, %s, %s, %s);
+                    """, (content, embedding, name, tax_type, date, link))
+
+            await conn.commit()
+
+# Run the migration
+asyncio.run(migrate_documents())
+
+
+
+project/
+├── polish_documents/
+│   ├── firmaA_vat.txt
+│   ├── firmaB_cit.txt
+│   └── ...
+├── migrate_pgvector.py
+Would you like help writing a script to query this PGVector table for similarity search manually or integrate it into your Streamlit app?
+
+Python
+from langchain.vectorstores.pgvector import PGVector
+from langchain.embeddings import OllamaEmbeddings
+from langchain.chat_models import ChatOllama
+from langchain.chains import RetrievalQA
+
+# Embedding model
+embedding_model = OllamaEmbeddings(model="mistral")
+
+# PGVector connection string
+CONNECTION_STRING = "postgresql+psycopg://youruser:yourpass@localhost:5432/yourdb"
+
+# Load PGVector store
+vector_store = PGVector(
+    connection_string=CONNECTION_STRING,
+    embedding_function=embedding_model,
+    collection_name="documents"
+)
+
+# Retriever
+retriever = vector_store.as_retriever(search_kwargs={"k": 15})
+
+# RAG chain
+llm = ChatOllama(model="mistral")
+rag_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever, return_source_documents=True)
+``
+
+Python
+import streamlit as st
+import asyncio
+
+st.title("PGVector - Wyszukiwanie podobnych dokumentów")
+
+query = st.text_area("Wprowadź zapytanie (Polski tekst)", height=200)
+
+if st.button("Szukaj podobnych"):
+    with st.spinner("Wyszukiwanie..."):
+        result = rag_chain.invoke(query)
+        st.write("### Odpowiedź:")
+        st.write(result['result'])
+
+        st.write("### Dokumenty źródłowe:")
+        scored_rows = []
+        likes = 0
+        dislikes = 0
+
+        for i, doc in enumerate(result['source_documents']):
+            metadata = doc.metadata
+            row = {
+                "id": i + 1,
+                "name": metadata.get("name", f"Dokument {i+1}"),
+                "tax_type": metadata.get("tax_type", "Brak"),
+                "date": metadata.get("date", "Brak"),
+                "link": metadata.get("link", "#"),
+                "similarity": metadata.get("similarity", 0.0)
+            }
+
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.write(f"**{row['name']}** | {row['tax_type']} | {row['date']} | [Link]({imilarity: {row['similarity']:.2f}")
+            with col2:
+                score = st.radio(f"Oceń ID {row['id']}", ["Brak", "Lubię", "Nie lubię"], key=row['id'])
+                if score == "Lubię":
+                    likes += 1
+                    row['score'] = "like"
+                elif score == "Nie lubię":
+                    dislikes += 1
+                    row['score'] = "dislike"
+                else:
+                    row['score'] = None
+            scored_rows.append(row)
+
+        st.subheader("Podsumowanie globalne")
+        st.write(f"👍 Lubię: {likes} | 👎 Nie lubię: {dislikes}")
+        description = st.text_area("Opis podsumowania")
+
+        if st.button("Zapisz wyniki"):
+            asyncio.run(insert_scores(scored_rows, {"likes": likes, "dislikes": dislikes}, description))
+            st.success("Wyniki zapisane!")
+
+Python
+import psycopg
+
+# Async insert function
+async def insert_scores(rows, summary, description):
+    async with await psycopg.AsyncConnection.connect(
+        dbname="yourdb",
+        user="youruser",
+        password="yourpass",
+        host="localhost",
+        port=5432
+    ) as conn:
+        async with conn.cursor() as cur:
+            # Insert each scored row
+            for row in rows:
+                if row['score'] is not None:
+                    await cur.execute("""
+                        INSERT INTO scored_results (id, name, tax_type, date, link, similarity, score)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        row['id'],
+                        row['name'],
+                        row['tax_type'],
+                        row['date'],
+                        row['link'],
+                        row['similarity'],
+                        row['score']
+                    ))
+
+            # Insert global summary
+            await cur.execute("""
+                INSERT INTO global_summary (likes, dislikes, description)
+                VALUES (%s, %s, %s)
+            """, (
+                summary['likes'],
+                summary['dislikes'],
+                description
+            ))
+
+        await conn.commit()
+
+Pokaż więcej wierszy
+🧩 How to Use in Streamlit
+In your Streamlit app, after collecting scored_rows, likes, dislikes, and description, call:
+
+
+
+
+Python
+if st.button("Zapisz wyniki"):
+    asyncio.run(insert_scores(scored_rows, {"likes": likes, "dislikes": dislikes}, description))
+    st.success("Wyniki zapisane!")
+
+🗃️ PostgreSQL Tables (Reminder)
+Make sure these tables exist:
+
+
+
+
+SQL
+CREATE TABLE scored_results (
+    id INT,
+    name TEXT,
+    tax_type TEXT,
+    date DATE,
+    link TEXT,
+    similarity FLOAT,
+    score TEXT
+);
+
+CREATE TABLE global_summary (
+    likes INT,
+    dislikes INT,
+    description TEXT
+);
+
+
+SQL
+CREATE TABLE scored_results (
+    id INT,
+    name TEXT,
+    tax_type TEXT,
+    date DATE,
+    link TEXT,
+    similarity FLOAT,
+    score TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE global_summary (
+    likes INT,
+    dislikes INT,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+Python
+import psycopg
+from datetime import datetime
+
+async def insert_scores(rows, summary, description):
+    async with await psycopg.AsyncConnection.connect(
+        dbname="yourdb",
+        user="youruser",
+        password="yourpass",
+        host="localhost",
+        port=5432
+    ) as conn:
+        async with conn.cursor() as cur:
+            now = datetime.now()
+
+            for row in rows:
+                if row['score'] is not None:
+                    await cur.execute("""
+                        INSERT INTO scored_results (id, name, tax_type, date, link, similarity, score, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        row['id'],
+                        row['name'],
+                        row['tax_type'],
+                        row['date'],
+                        row['link'],
+                        row['similarity'],
+                        row['score'],
+                        now
+                    ))
+
+            await cur.execute("""
+                INSERT INTO global_summary (likes, dislikes, description, created_at)
+                VALUES (%s, %s, %s, %s)
+            """, (
+                summary['likes'],
+                summary['dislikes'],
+                description,
+                now
+            ))
+
+        await conn.commit()
+
+Python
+import uuid
+
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+``
+🗃️ 2. Update PostgreSQL Tables
+
+
+
+SQL
+ALTER TABLE scored_results ADD COLUMN session_id TEXT;
+ALTER TABLE global_summary ADD COLUMN session_id TEXT;
+Or if creating from scratch:
+
+
+
+
+SQL
+CREATE TABLE scored_results (
+    id INT,
+    name TEXT,
+    tax_type TEXT,
+    date DATE,
+    link TEXT,
+    similarity FLOAT,
+    score TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    session_id TEXT
+);
+
+CREATE TABLE global_summary (
+    likes INT,
+    dislikes INT,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    session_id TEXT
+);
+
+Pokaż więcej wierszy
+🔄 3. Update Async Insert Function
+
+
+
+Python
+from datetime import datetime
+
+async def insert_scores(rows, summary, description, session_id):
+    async with await psycopg.AsyncConnection.connect(
+        dbname="yourdb",
+        user="youruser",
+        password="yourpass",
+        host="localhost",
+        port=5432
+    ) as conn:
+        async with conn.cursor() as cur:
+            now = datetime.now()
+
+            for row in rows:
+                if row['score'] is not None:
+                    await cur.execute("""
+                        INSERT INTO scored_results (id, name, tax_type, date, link, similarity, score, created_at, session_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        row['id'],
+                        row['name'],
+                        row['tax_type'],
+                        row['date'],
+                        row['link'],
+                        row['similarity'],
+                        row['score'],
+                        now,
+                        session_id
+                    ))
+
+            await cur.execute("""
+                INSERT INTO global_summary (likes, dislikes, description, created_at, session_id)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (
+                summary['likes'],
+                summary['dislikes'],
+                description,
+                now,
+                session_id
+            ))
+
+        await conn.commit()
+
+Pokaż więcej wierszy
+🧩 4. Call Insert in Streamlit
+
+
+
+Python
+if st.button("Zapisz wyniki"):
+    session_id = st.session_state.session_id
+    asyncio.run(insert_scores(scored_rows, {"likes": likes, "dislikes": dislikes}, description, session_id))
+    st.success(f"Wyniki zapisane! (Sesja: {session_id})")
+Would you like to add a user name or role to the session tracking for audit or personalization?
+
+
+Python
+import uuid
+
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+
+if "user_name" not in st.session_state:
+    st.session_state.user_name = st.text_input("Podaj swoje imię i nazwisko")
+You can also pre-fill it if you already know the user:
+
+
+
+
+Python
+st.session_state.user_name = "Saternus Krzysztof"
+🗃️ 2. Update PostgreSQL Tables
+
+
+
+SQL
+ALTER TABLE scored_results ADD COLUMN user_name TEXT;
+ALTER TABLE global_summary ADD COLUMN user_name TEXT;
+
+Or if creating from scratch:
+
+
+
+
+SQL
+CREATE TABLE scored_results (
+    id INT,
+    name TEXT,
+    tax_type TEXT,
+    date DATE,
+    link TEXT,
+    similarity FLOAT,
+    score TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    session_id TEXT,
+    user_name TEXT
+);
+
+CREATE TABLE global_summary (
+    likes INT,
+    dislikes INT,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    session_id TEXT,
+    user_name TEXT
+);
+
+Pokaż więcej wierszy
+🔄 3. Update Async Insert Function
+
+
+
+Python
+from datetime import datetime
+async def insert_scores(rows, summary, description, session_id, user_name):
+    async with await psycopg.AsyncConnection.connect(
+        dbname="yourdb",
+        user="youruser",
+        password="yourpass",
+        host="localhost",
+        port=5432
+    ) as conn:
+        async with conn.cursor() as cur:
+            now = datetime.now()
+
+            for row in rows:
+                if row['score'] is not None:
+                    await cur.execute("""
+                        INSERT INTO scored_results (id, name, tax_type, date, link, similarity, score, created_at, session_id, user_name)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        row['id'],
+                        row['name'],
+                        row['tax_type'],
+                        row['date'],
+                        row['link'],
+                        row['similarity'],
+                        row['score'],
+                        now,
+                        session_id,
+                        user_name
+                    ))
+
+            await cur.execute("""
+                INSERT INTO global_summary (likes, dislikes, description, created_at, session_id, user_name)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (
+                summary['likes'],
+                summary['dislikes'],
+                description,
+                now,
+                session_id,
+                user_name
+            ))
+
+        await conn.commit()
+``
+
+Pokaż mniej
+🧩 4. Call Insert in Streamlit
+
+
+
+Python
+if st.button("Zapisz wyniki"):
+    session_id = st.session_state.session_id
+    user_name = st.session_state.user_name
+    asyncio.run(insert_scores(scored_rows, {"likes": likes, "dislikes": dislikes}, description, session_id, user_name))
+    st.success(f"Wyniki zapisane! (Sesja: {session_id}, Użytkownik: {user_name})")
+Would you like to add filtering by user or session in the app to view past results?
+
+SQL
+CREATE TABLE users (
+    username TEXT PRIMARY KEY,
+    password TEXT, -- store hashed passwords in production!
+    full_name TEXT
+);
+⚠️ For production, use password hashing (e.g., bcrypt) instead of storing plain text.
+
+🧠 2. Streamlit Login Form
+
+
+
+Python
+import streamlit as st
+import psycopg
+
+def authenticate_user(username, password):
+    with psycopg.connect(
+        dbname="yourdb",
+        user="youruser",
+        password="yourpass",
+        host="localhost",
+        port=5432
+    ) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT full_name FROM users WHERE username = %s AND password = %s", (username, password))
+            result = cur.fetchone()
+            return result[0] if result else None
+
+# Login form
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.title("Logowanie")
+    username = st.text_input("Nazwa użytkownika")
+    password = st.text_input("Hasło", type="password")
+    if st.button("Zaloguj"):
+        full_name = authenticate_user(username, password)
+        if full_name:
+            st.session_state.authenticated = True
+            st.session_state.user_name = full_name
+            st.success(f"Witaj, {full_name}!")
+        else:
+            st.error("Nieprawidłowa nazwa użytkownika lub hasło.")
+    st.stop()
+``
+
+Pokaż więcej wierszy
+✅ 3. Use user_name in Session
+Once authenticated, you can use st.session_state.user_name in your inserts:
+
+
+Python
+user_name = st.session_state.user_name
+session_id = st.session_state.session_id
+asyncio.run(insert_scores(scored_rows, {"likes": likes, "dislikes": dislikes}, description, session_id, user_name))
+
+pip install bcrypt
+
+Python
+import bcrypt
+
+def hash_password(password: str) -> str:
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+    return hashed.decode('utf-8')
+Then insert into your users table:
+
+Python
+hashed_pw = hash_password("user_password")
+# INSERT INTO users (username, password, full_name) VALUES (%s, %s, %s)
+🔍 3. Verify Passwords on Login
+Update your login logic:
+
+Python
+def authenticate_user(username, password):
+    with psycopg.connect(
+        dbname="yourdb",
+        user="youruser",
+        password="yourpass",
+        host="localhost",
+        port=5432
+    ) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT password, full_name FROM users WHERE username = %s", (username,))
+            result = cur.fetchone()
+            if result:
+                stored_hash, full_name = result
+                if bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8')):
+                    return full_name
+    return None
+``
+
+
+Python
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.title("Logowanie")
+    username = st.text_input("Nazwa użytkownika")
+    password = st.text_input("Hasło", type="password")
+    if st.button("Zaloguj"):
+        full_name = authenticate_user(username, password)
+        if full_name:
+            st.session_state.authenticated = True
+            st.session_state.user_name = full_name
+            st.success(f"Witaj, {full_name}!")
+        else:
+            st.error("Nieprawidłowa nazwa użytkownika lub hasło.")
+    st.stop()
+
+Pokaż więcej wierszy
+Would you like help adding a user registration form or admin panel to manage users securely?
+
+Shell
+pip install psycopg[binary] bcrypt streamlit
+
+Python
+import streamlit as st
+import psycopg
+import bcrypt
+
+DB_PARAMS = {
+    "dbname": "yourdb",
+    "user": "youruser",
+    "password": "yourpass",
+    "host": "localhost",
+    "port": 5432
+}
+
+def hash_password(password: str) -> str:
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+    return hashed.decode('utf-8')
+
+def verify_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+
+def authenticate_admin(username, password):
+    with psycopg.connect(**DB_PARAMS) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT password FROM users WHERE username = %s", (username,))
+            result = cur.fetchone()
+            if result and verify_password(password, result[0]):
+                return True
+    return False
+
+def create_user(username, password, full_name):
+    hashed_pw = hash_password(password)
+    with psycopg.connect(**DB_PARAMS) as conn:
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO users (username, password, full_name) VALUES (%s, %s, %s)", (username, hashed_pw, full_name))
+        conn.commit()
+
+def delete_user(username):
+    with psycopg.connect(**DB_PARAMS) as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM users WHERE username = %s", (username,))
+        conn.commit()
+
+def list_users():
+    with psycopg.connect(**DB_PARAMS) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT username, full_name FROM users ORDER BY username")
+            return cur.fetchall()
+
+# Streamlit UI
+st.title("Panel administratora użytkowników")
+
+if "admin_authenticated" not in st.session_state:
+    st.session_state.admin_authenticated = False
+
+if not st.session_state.admin_authenticated:
+    st.subheader("Logowanie administratora")
+    admin_user = st.text_input("Nazwa użytkownika")
+    admin_pass = st.text_input("Hasło", type="password")
+    if st.button("Zaloguj"):
+        if authenticate_admin(admin_user, admin_pass):
+            st.session_state.admin_authenticated = True
+            st.success("Zalogowano pomyślnie jako administrator.")
+        else:
+            st.error("Nieprawidłowa nazwa użytkownika lub hasło.")
+    st.stop()
+
+# User management panel
+st.subheader("Lista użytkowników")
+users = list_users()
+for u in users:
+    st.write(f"👤 {u[1]} ({u[0]})")
+
+st.subheader("Dodaj nowego użytkownika")
+new_username = st.text_input("Nowa nazwa użytkownika")
+new_password = st.text_input("Hasło", type="password")
+new_fullname = st.text_input("Imię i nazwisko")
+if st.button("Utwórz użytkownika"):
+    if new_username and new_password and new_fullname:
+        create_user(new_username, new_password, new_fullname)
+        st.success(f"Użytkownik {new_username} został utworzony.")
+    else:
+        st.error("Wszystkie pola są wymagane.")
+
+st.subheader("Usuń użytkownika")
+del_username = st.text_input("Nazwa użytkownika do usunięcia")
+if st.button("Usuń użytkownika"):
+    if del_username:
+        delete_user(del_username)
+        st.success(f"Użytkownik {del_username} został usunięty.")
+    else:
+        st.error("Podaj nazwę użytkownika do usunięcia.")

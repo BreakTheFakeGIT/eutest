@@ -1,0 +1,1285 @@
+Dzisiaj
+You said:
+
+I'm using Python, Langchain,  multiprocessing, batch processing, a sentence transformer, a Postgres database with Psycopg 3 (not Alchemy), pg_vector, and an Ollama local language model for Polish, such as Bielik. 
+I want to write a Python function that includes:
+1) assigns a prompt with questions to a given tax, depending on the tax type.
+2) The user enters text, and the language model responds according to the prompt.
+3) The results are saved in a dictionary (Python), which can be used for vectorization.
+4) vectorize the results.
+5) measure the time for each step.
+6) save to the Postgres database.
+Copilot said:
+Copilot
+Here’s a structured approach to implement your requirements in Python using the stack you mentioned:
+
+✅ High-Level Steps
+Assign a prompt based on tax type
+Create a dictionary mapping tax types to prompts.
+User enters text → LLM responds
+Use LangChain with Ollama (Bielik model) for local inference.
+Store results in a Python dictionary
+Include user input, model response, and metadata.
+Vectorize results
+Use SentenceTransformer to generate embeddings.
+Measure time for each step
+Use time.perf_counter() for precise timing.
+Save to Postgres with pg_vector
+Use Psycopg 3 for database operations.
+✅ Example Implementation
+
+
+
+Python
+import time
+import psycopg
+from sentence_transformers import SentenceTransformer
+from langchain.llms import Ollama
+from langchain.prompts import PromptTemplate
+
+# Initialize components
+model = SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
+llm = Ollama(model="bielik")  # Polish LLM via Ollama
+
+# Tax prompts
+TAX_PROMPTS = {
+    "VAT": "Odpowiedz na pytania dotyczące podatku VAT: {questions}",
+    "CIT": "Odpowiedz na pytania dotyczące podatku CIT: {questions}",
+    "PIT": "Odpowiedz na pytania dotyczące podatku PIT: {questions}"
+}
+
+def process_tax_query(tax_type: str, user_text: str, questions: str):
+    timings = {}
+    
+    # Step 1: Assign prompt
+    start = time.perf_counter()
+    prompt_template = PromptTemplate(template=TAX_PROMPTS[tax_type], input_variables=["questions"])
+    prompt = prompt_template.format(questions=questions)
+    timings['prompt_assignment'] = time.perf_counter() - start
+
+    # Step 2: Get LLM response
+    start = time.perf_counter()
+    response = llm(prompt + "\n" + user_text)
+    timings['llm_response'] = time.perf_counter() - start
+
+    # Step 3: Save in dictionary
+    start = time.perf_counter()
+    result_dict = {
+        "tax_type": tax_type,
+        "user_text": user_text,
+        "prompt": prompt,
+        "response": response
+    }
+    timings['dict_creation'] = time.perf_counter() - start
+
+    # Step 4: Vectorize
+    start = time.perf_counter()
+    embedding = model.encode(response)
+    timings['vectorization'] = time.perf_counter() - start
+
+    # Step 5: Save to Postgres
+    start = time.perf_counter()
+    with psycopg.connect("dbname=mydb user=myuser password=mypass host=localhost") as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO tax_responses (tax_type, user_text, response, embedding)
+                VALUES (%s, %s, %s, %s)
+            """, (tax_type, user_text, response, embedding.tolist()))
+        conn.commit()
+    timings['db_save'] = time.perf_counter() - start
+
+
+
+Pokaż więcej wierszy
+✅ Key Points
+LangChain + Ollama: Ollama(model="bielik") integrates Bielik locally.
+SentenceTransformer: multilingual model for Polish embeddings.
+pg_vector: Ensure your Postgres table has a vector column (e.g., embedding VECTOR(384)).
+Timing: time.perf_counter() for accurate measurement.
+Batch Processing & Multiprocessing: Wrap process_tax_query in multiprocessing.Pool for parallel execution.
+👉 Do you want me to extend this with multiprocessing and batch processing, including:
+
+Handling multiple tax queries in parallel?
+Adding error handling and logging?
+Providing Postgres table schema with pg_vector?
+Or should I write a full production-ready script with all these features combined?
+
+
+
+
+
+
+
+
+You said:
+
+Add multiprocessing support
+Copilot said:
+Copilot
+Here’s how you can extend the previous solution with multiprocessing and batch processing:
+
+✅ Updated Design
+Use multiprocessing.Pool to process multiple tax queries in parallel.
+Each worker will call process_tax_query (from previous code).
+Collect results and timings for all queries.
+Ensure database writes are thread-safe (each process opens its own connection).
+✅ Full Example with Multiprocessing
+
+
+
+Python
+import time
+import psycopg
+from sentence_transformers import SentenceTransformer
+from langchain.llms import Ollama
+from langchain.prompts import PromptTemplate
+from multiprocessing import Pool, cpu_count
+
+# Initialize global components (loaded once per process)
+model = SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
+llm = Ollama(model="bielik")
+
+# Tax prompts
+TAX_PROMPTS = {
+    "VAT": "Odpowiedz na pytania dotyczące podatku VAT: {questions}",
+    "CIT": "Odpowiedz na pytania dotyczące podatku CIT: {questions}",
+    "PIT": "Odpowiedz na pytania dotyczące podatku PIT: {questions}"
+}
+
+def process_tax_query(args):
+    tax_type, user_text, questions = args
+    timings = {}
+
+    # Step 1: Assign prompt
+    start = time.perf_counter()
+    prompt_template = PromptTemplate(template=TAX_PROMPTS[tax_type], input_variables=["questions"])
+    prompt = prompt_template.format(questions=questions)
+    timings['prompt_assignment'] = time.perf_counter() - start
+
+    # Step 2: LLM response
+    start = time.perf_counter()
+    response = llm(prompt + "\n" + user_text)
+    timings['llm_response'] = time.perf_counter() - start
+
+    # Step 3: Dictionary
+    start = time.perf_counter()
+    result_dict = {
+        "tax_type": tax_type,
+        "user_text": user_text,
+        "prompt": prompt,
+        "response": response
+    }
+    timings['dict_creation'] = time.perf_counter() - start
+
+    # Step 4: Vectorize
+    start = time.perf_counter()
+    embedding = model.encode(response)
+    timings['vectorization'] = time.perf_counter() - start
+
+    # Step 5: Save to Postgres
+    start = time.perf_counter()
+    with psycopg.connect("dbname=mydb user=myuser password=mypass host=localhost") as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO tax_responses (tax_type, user_text, response, embedding)
+                VALUES (%s, %s, %s, %s)
+            """, (tax_type, user_text, response, embedding.tolist()))
+        conn.commit()
+    timings['db_save'] = time.perf_counter() - start
+
+    return result_dict, timings
+
+def batch_process_tax_queries(query_list, workers=None):
+    if workers is None:
+        workers = cpu_count()  # Use all available cores
+    with Pool(processes=workers) as pool:
+        results = pool.map(process_tax_query, query_list)
+    return results
+
+# Example usage
+if __name__ == "__main__":
+    queries = [
+        ("VAT", "Jak obliczyć podatek VAT?", "Proszę wyjaśnić zasady naliczania VAT"),
+        ("CIT", "Jak wygląda rozliczenie CIT?", "Jakie są stawki CIT w Polsce?"),
+        ("PIT", "Jak rozliczyć PIT?", "Jakie ulgi są dostępne?")
+    ]
+    all_results = batch_process_tax_queries(queries)
+    for res, timing in all_results:
+        print("Result:", res)
+        print("Timings:", timing)
+
+
+Pokaż więcej wierszy
+✅ What This Adds
+Parallel execution: Each query runs in its own process.
+Scalable: Handles large batches efficiently.
+Independent DB writes: Each process commits its own transaction.
+✅ Next Steps
+Do you want me to:
+
+Add error handling and logging (e.g., retry DB insert, log timings)?
+Provide Postgres schema with pg_vector setup?
+Show how to integrate LangChain’s RunnableParallel for async pipelines?
+Add a performance benchmark for batch size vs. CPU cores?
+Which one should I do first?
+
+
+
+
+
+
+
+
+You said:
+
+Explain how to scale with more workers
+Copilot said:
+Copilot
+Great question! Scaling with more workers in multiprocessing depends on CPU cores, memory, and I/O constraints. Here’s how to approach it:
+
+✅ 1. Understand the Bottleneck
+CPU-bound tasks (e.g., SentenceTransformer embeddings, LLM inference): More workers help until you saturate CPU cores.
+I/O-bound tasks (e.g., Postgres inserts): Adding too many workers can cause contention on the database.
+✅ 2. Control Number of Workers
+
+
+
+Python
+from multiprocessing import cpu_count
+
+workers = min(cpu_count(), desired_workers)
+cpu_count() gives physical cores.
+For heavy CPU tasks (vectorization + LLM), start with workers = cpu_count().
+For mixed workloads (CPU + DB), use workers = cpu_count() - 1 to leave room for system processes.
+✅ 3. Batch Size Strategy
+If you have 10,000 queries, don’t spawn 10,000 processes.
+Use chunking:
+
+
+
+Python
+pool.map(process_tax_query, query_list, chunksize=10)
+chunksize reduces overhead by sending multiple tasks per worker.
+✅ 4. Database Scaling
+Each process opens its own connection → Postgres can handle this if max_connections is tuned.
+For very large batches:
+Use connection pooling (e.g., psycopg_pool).
+Or queue DB writes (workers return data → one writer process inserts).
+✅ 5. Memory Considerations
+SentenceTransformer embeddings can be large.
+If RAM is limited, reduce workers or process in smaller batches.
+✅ 6. Benchmark
+Start with:
+
+
+
+
+Python
+workers = cpu_count()
+
+Then measure:
+
+Throughput (queries/sec)
+CPU utilization
+DB latency
+👉 Do you want me to write a version with dynamic scaling logic (auto-adjust workers based on CPU load and batch size) and add connection pooling for Postgres? Or should I show a performance benchmark script for different worker counts?
+
+
+
+
+
+
+
+
+You said:
+
+Explain connection pooling in Psycopg
+Copilot said:
+Copilot
+Connection pooling in Psycopg 3 is a way to reuse database connections instead of creating a new one for every query. This is critical when scaling with multiprocessing because opening thousands of connections can overwhelm Postgres.
+
+✅ Why Use Connection Pooling?
+Performance: Creating a new connection is expensive (handshake, authentication).
+Resource Management: Postgres has a max_connections limit; pooling prevents hitting it.
+Concurrency: Multiple workers can borrow connections from the pool instead of creating their own.
+✅ How Psycopg 3 Handles Pooling
+Psycopg 3 provides psycopg_pool for connection pooling:
+
+
+
+
+Python
+from psycopg_pool import ConnectionPool
+
+# Create a pool (global or per process)
+pool = ConnectionPool("dbname=mydb user=myuser password=mypass host=localhost", min_size=1, max_size=10)
+
+# Use a connection from the pool
+with pool.connection() as conn:
+    with conn.cursor() as cur:
+
+✅ Key Parameters
+min_size: Minimum connections kept alive.
+max_size: Maximum connections allowed in the pool.
+timeout: How long to wait for a connection if the pool is full.
+✅ Best Practices for Multiprocessing
+Each process should have its own pool (don’t share across processes).
+Set max_size based on:
+Number of workers
+Postgres max_connections
+Example: If Postgres allows 100 connections and you have 8 workers, set max_size=10 per pool.
+✅ Advanced Options
+Async Pool: AsyncConnectionPool for async workloads.
+Health Checks: Pool automatically validates connections.
+Pre-warming: Use pool.open() before heavy load.
+👉 Do you want me to update the multiprocessing code to use Psycopg connection pooling and show how to batch inserts for better performance? Or should I write a full architecture diagram for scaling LLM + embeddings + Postgres with pooling?
+
+
+
+
+
+
+
+
+You said:
+
+Show how to batch inserts with pooling
+Copilot said:
+Copilot
+Here’s how you can batch inserts with Psycopg connection pooling for better performance:
+
+✅ Why Batch Inserts?
+Inserting rows one by one is slow because each INSERT is a separate transaction.
+Batch inserts reduce round trips and commit overhead.
+Combined with connection pooling, this scales well for multiprocessing.
+✅ Postgres Table Example
+
+
+
+SQL
+CREATE TABLE tax_responses (
+    id SERIAL PRIMARY KEY,
+    tax_type TEXT,
+    user_text TEXT,
+    response TEXT,
+    embedding VECTOR(384)  -- pgvector column
+);
+
+✅ Connection Pool Setup
+
+
+
+Python
+from psycopg_pool import ConnectionPool
+
+# Create a pool (per process)
+pool = ConnectionPool(
+    "dbname=mydb user=myuser password=mypass host=localhost",
+    min_size=1,
+    max_size=10
+)
+✅ Batch Insert Function
+
+
+
+Python
+def batch_insert(results):
+    """
+    results: list of tuples (tax_type, user_text, response, embedding)
+    """
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            # Use executemany for batch insert
+            cur.executemany("""
+                INSERT INTO tax_responses (tax_type, user_text, response, embedding)
+                VALUES (%s, %s, %s, %s)
+            """, [(r[0], r[1], r[2], r[3].tolist()) for r in results])
+        conn.commit()
+✅ Integrate with Multiprocessing
+Instead of inserting inside process_tax_query, return data to the main process and insert in batches:
+
+
+
+
+Python
+def process_tax_query(args):
+    tax_type, user_text, questions = args
+    # ... same steps as before ...
+    return (tax_type, user_text, response, embedding)
+
+def batch_process_tax_queries(query_list, workers=None):
+    if workers is None:
+        workers = cpu_count()
+    with Pool(processes=workers) as pool:
+        results = pool.map(process_tax_query, query_list)
+    # Batch insert after all workers finish
+    batch_insert(results)
+✅ Performance Tips
+Use chunks of 100–1000 rows for batch inserts.
+If you have millions of rows, consider COPY for bulk loading:
+
+
+
+Python
+cur.copy("COPY tax_responses FROM STDIN WITH CSV", file_obj)
+Tune Postgres: work_mem, max_connections, and checkpoint_timeout.
+👉 Do you want me to write a full production-ready script that:
+
+Uses multiprocessing + pooling + batch inserts
+Handles timing, error handling, and logging
+Supports dynamic batch sizes for large datasets?
+Or should I show an architecture diagram for scaling LLM + embeddings + Postgres with pooling and batching?
+
+
+
+
+
+
+
+
+You said:
+
+Show dynamic batch size logic
+Copilot said:
+Copilot
+Here’s how you can implement dynamic batch size logic for inserting results into Postgres efficiently:
+
+✅ Why Dynamic Batch Size?
+If you have few results, inserting them one by one is fine.
+If you have thousands of results, batching reduces overhead.
+Dynamic logic adjusts batch size based on:
+Total results
+Memory limits
+Database performance
+✅ Dynamic Batch Insert Function
+
+
+
+Python
+def dynamic_batch_insert(results, pool, max_batch_size=500):
+    """
+    Insert results into Postgres in dynamically sized batches.
+    results: list of tuples (tax_type, user_text, response, embedding)
+    pool: psycopg_pool.ConnectionPool instance
+    max_batch_size: upper limit for batch size
+    """
+    total = len(results)
+    # Calculate batch size: smaller for small datasets, capped at max_batch_size
+    batch_size = min(max_batch_size, max(50, total // 10))  # at least 50 rows per batch
+    print(f"Using batch size: {batch_size}")
+
+    for i in range(0, total, batch_size):
+        batch = results[i:i + batch_size]
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.executemany("""
+                    INSERT INTO tax_responses (tax_type, user_text, response, embedding)
+                    VALUES (%s, %s, %s, %s)
+                """, [(r[0], r[1], r[2], r[3].tolist()) for r in batch])
+            conn.commit()
+
+
+Pokaż więcej wierszy
+✅ Logic Explanation
+total // 10: If you have 10,000 rows, batch size becomes ~1,000.
+min(max_batch_size, ...): Prevents overly large batches.
+max(50, ...): Ensures at least 50 rows per batch for efficiency.
+✅ Integration with Multiprocessing
+After collecting results from workers:
+
+
+
+
+Python
+from psycopg_pool import ConnectionPool
+
+pool = ConnectionPool("dbname=mydb user=myuser password=mypass host=localhost", min_size=1, max_size=10)
+
+all_results = batch_process_tax_queries(queries)
+dynamic_batch_insert(all_results, pool)
+✅ Performance Tips
+For very large datasets (millions of rows):
+Use COPY for bulk loading instead of executemany.
+Monitor:
+Insert latency
+Pool utilization
+Postgres locks
+👉 Do you want me to write a full production-ready script that combines:
+
+Multiprocessing
+Connection pooling
+Dynamic batch inserts
+Timing and logging
+Error handling with retries?
+Or should I show an architecture diagram for scaling this pipeline (LLM + embeddings + Postgres) with dynamic batching and pooling?
+
+
+
+
+
+
+
+
+You said:
+
+Show full script with dynamic batching
+Copilot said:
+Copilot
+Here’s a full production-ready script that combines:
+
+✔ Multiprocessing
+✔ Connection pooling with psycopg_pool
+✔ Dynamic batch inserts
+✔ Timing and logging
+✔ Error handling
+
+✅ Complete Python Script
+
+
+
+Python
+import time
+import logging
+from multiprocessing import Pool, cpu_count
+from psycopg_pool import ConnectionPool
+from sentence_transformers import SentenceTransformer
+from langchain.llms import Ollama
+from langchain.prompts import PromptTemplate
+
+# -------------------------
+# CONFIGURATION
+# -------------------------
+DB_CONN_STR = "dbname=mydb user=myuser password=mypass host=localhost"
+MAX_BATCH_SIZE = 500
+POOL_MIN = 1
+POOL_MAX = 10
+
+# Initialize logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+# Global components (loaded once per process)
+model = SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
+llm = Ollama(model="bielik")
+
+# Tax prompts
+TAX_PROMPTS = {
+    "VAT": "Odpowiedz na pytania dotyczące podatku VAT: {questions}",
+    "CIT": "Odpowiedz na pytania dotyczące podatku CIT: {questions}",
+    "PIT": "Odpowiedz na pytania dotyczące podatku PIT: {questions}"
+}
+
+# -------------------------
+# PROCESSING FUNCTION
+# -------------------------
+def process_tax_query(args):
+    tax_type, user_text, questions = args
+    timings = {}
+
+    try:
+        # Step 1: Assign prompt
+        start = time.perf_counter()
+        prompt_template = PromptTemplate(template=TAX_PROMPTS[tax_type], input_variables=["questions"])
+        prompt = prompt_template.format(questions=questions)
+        timings['prompt_assignment'] = time.perf_counter() - start
+
+        # Step 2: LLM response
+        start = time.perf_counter()
+        response = llm(prompt + "\n" + user_text)
+        timings['llm_response'] = time.perf_counter() - start
+
+        # Step 3: Vectorize
+        start = time.perf_counter()
+        embedding = model.encode(response)
+        timings['vectorization'] = time.perf_counter() - start
+
+        return (tax_type, user_text, response, embedding), timings
+
+    except Exception as e:
+        logging.error(f"Error processing query: {e}")
+        return None, None
+
+# -------------------------
+# DYNAMIC BATCH INSERT
+# -------------------------
+def dynamic_batch_insert(results, pool, max_batch_size=MAX_BATCH_SIZE):
+    total = len(results)
+    if total == 0:
+        logging.warning("No results to insert.")
+        return
+
+    batch_size = min(max_batch_size, max(50, total // 10))
+    logging.info(f"Inserting {total} rows in batches of {batch_size}")
+
+    for i in range(0, total, batch_size):
+        batch = results[i:i + batch_size]
+        try:
+            with pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.executemany("""
+                        INSERT INTO tax_responses (tax_type, user_text, response, embedding)
+                        VALUES (%s, %s, %s, %s)
+                    """, [(r[0], r[1], r[2], r[3].tolist()) for r in batch])
+                conn.commit()
+            logging.info(f"Inserted batch {i // batch_size + 1}")
+        except Exception as e:
+            logging.error(f"Error inserting batch {i // batch_size + 1}: {e}")
+
+# -------------------------
+# MAIN BATCH PROCESS
+# -------------------------
+def batch_process_tax_queries(query_list, workers=None):
+    if workers is None:
+        workers = cpu_count()
+    logging.info(f"Starting batch processing with {workers} workers")
+
+    with Pool(processes=workers) as pool:
+        results_with_timings = pool.map(process_tax_query, query_list)
+
+    # Filter out failed results
+    valid_results = [r for r, t in results_with_timings if r is not None]
+    timings_list = [t for r, t in results_with_timings if t is not None]
+
+    return valid_results, timings_list
+
+# -------------------------
+# EXECUTION
+# -------------------------
+if __name__ == "__main__":
+    queries = [
+        ("VAT", "Jak obliczyć podatek VAT?", "Proszę wyjaśnić zasady naliczania VAT"),
+        ("CIT", "Jak wygląda rozliczenie CIT?", "Jakie są stawki CIT w Polsce?"),
+        ("PIT", "Jak rozliczyć PIT?", "Jakie ulgi są dostępne?")
+    ]
+
+    start_total = time.perf_counter()
+    results, timings = batch_process_tax_queries(queries)
+
+    # Initialize connection pool
+    pool = ConnectionPool(DB_CONN_STR, min_size=POOL_MIN, max_size=POOL_MAX)
+    dynamic_batch_insert(results, pool)
+
+    logging.info(f"Total processing time: {time.perf_counter() - start_total:.2f}s")
+    logging.info(f"Step timings: {timings}")
+
+Pokaż więcej wierszy
+✅ What This Script Does
+Multiprocessing: Uses Pool to process queries in parallel.
+Connection Pooling: psycopg_pool.ConnectionPool for efficient DB access.
+Dynamic Batch Size: Adjusts based on dataset size.
+Error Handling: Logs errors without crashing.
+Timing: Captures step timings for performance analysis.
+✅ Next-Level Enhancements
+Add retry logic for failed inserts.
+Use COPY for very large datasets.
+Add async version for even better throughput.
+Integrate LangChain RunnableParallel for async LLM calls.
+👉 Do you want me to draw an architecture diagram showing how this pipeline scales (LLM + embeddings + Postgres + pooling + batching)? Or should I add retry logic and COPY support for millions of rows?
+
+
+
+
+
+
+
+
+You said:
+
+Show async version of this script
+Copilot said:
+Copilot
+Here’s an async version of the script using:
+
+✔ asyncio for concurrency
+✔ psycopg_pool.AsyncConnectionPool for async DB operations
+✔ asyncio.gather for parallel LLM + embedding tasks
+✔ Dynamic batching for inserts
+
+✅ Async Python Script
+
+
+
+Python
+import asyncio
+import time
+import logging
+from psycopg_pool import AsyncConnectionPool
+from sentence_transformers import SentenceTransformer
+from langchain.llms import Ollama
+from langchain.prompts import PromptTemplate
+
+# -------------------------
+# CONFIGURATION
+# -------------------------
+DB_CONN_STR = "dbname=mydb user=myuser password=mypass host=localhost"
+MAX_BATCH_SIZE = 500
+POOL_MIN = 1
+POOL_MAX = 10
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+# -------------------------
+# GLOBAL COMPONENTS
+# -------------------------
+model = SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
+llm = Ollama(model="bielik")
+
+TAX_PROMPTS = {
+    "VAT": "Odpowiedz na pytania dotyczące podatku VAT: {questions}",
+    "CIT": "Odpowiedz na pytania dotyczące podatku CIT: {questions}",
+    "PIT": "Odpowiedz na pytania dotyczące podatku PIT: {questions}"
+}
+
+# -------------------------
+# ASYNC PROCESSING FUNCTION
+# -------------------------
+async def process_tax_query(tax_type, user_text, questions):
+    timings = {}
+    try:
+        # Step 1: Prompt
+        start = time.perf_counter()
+        prompt_template = PromptTemplate(template=TAX_PROMPTS[tax_type], input_variables=["questions"])
+        prompt = prompt_template.format(questions=questions)
+        timings['prompt_assignment'] = time.perf_counter() - start
+
+        # Step 2: LLM response (simulate async call)
+        start = time.perf_counter()
+        response = await asyncio.to_thread(llm, prompt + "\n" + user_text)
+        timings['llm_response'] = time.perf_counter() - start
+
+        # Step 3: Embedding (async via thread)
+        start = time.perf_counter()
+        embedding = await asyncio.to_thread(model.encode, response)
+        timings['vectorization'] = time.perf_counter() - start
+
+        return (tax_type, user_text, response, embedding), timings
+    except Exception as e:
+        logging.error(f"Error processing query: {e}")
+        return None, None
+
+# -------------------------
+# ASYNC DYNAMIC BATCH INSERT
+# -------------------------
+async def dynamic_batch_insert(results, pool, max_batch_size=MAX_BATCH_SIZE):
+    total = len(results)
+    if total == 0:
+        logging.warning("No results to insert.")
+        return
+
+    batch_size = min(max_batch_size, max(50, total // 10))
+    logging.info(f"Inserting {total} rows in batches of {batch_size}")
+
+    for i in range(0, total, batch_size):
+        batch = results[i:i + batch_size]
+        try:
+            async with pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.executemany("""
+                        INSERT INTO tax_responses (tax_type, user_text, response, embedding)
+                        VALUES (%s, %s, %s, %s)
+                    """, [(r[0], r[1], r[2], r[3].tolist()) for r in batch])
+                await conn.commit()
+            logging.info(f"Inserted batch {i // batch_size + 1}")
+        except Exception as e:
+            logging.error(f"Error inserting batch {i // batch_size + 1}: {e}")
+
+# -------------------------
+# MAIN ASYNC PIPELINE
+# -------------------------
+async def main():
+    queries = [
+        ("VAT", "Jak obliczyć podatek VAT?", "Proszę wyjaśnić zasady naliczania VAT"),
+        ("CIT", "Jak wygląda rozliczenie CIT?", "Jakie są stawki CIT w Polsce?"),
+        ("PIT", "Jak rozliczyć PIT?", "Jakie ulgi są dostępne?")
+    ]
+
+    start_total = time.perf_counter()
+
+    # Process queries concurrently
+    tasks = [process_tax_query(*q) for q in queries]
+    results_with_timings = await asyncio.gather(*tasks)
+
+    valid_results = [r for r, t in results_with_timings if r is not None]
+    timings_list = [t for r, t in results_with_timings if t is not None]
+
+    # Connection pool
+    pool = AsyncConnectionPool(DB_CONN_STR, min_size=POOL_MIN, max_size=POOL_MAX)
+    await pool.open()
+
+    await dynamic_batch_insert(valid_results, pool)
+    await pool.close()
+
+    logging.info(f"Total processing time: {time.perf_counter() - start_total:.2f}s")
+    logging.info(f"Step timings: {timings_list}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+Pokaż więcej wierszy
+✅ Key Changes in Async Version
+asyncio.to_thread() wraps blocking calls (LLM inference, embeddings).
+AsyncConnectionPool for non-blocking DB operations.
+asyncio.gather() runs all queries concurrently.
+Dynamic batching remains the same, but uses await cur.executemany().
+✅ Performance Benefits
+No GIL bottleneck for I/O (DB inserts run concurrently).
+LLM + embeddings processed in parallel threads.
+Scales better for hundreds of queries without blocking.
+👉 Do you want me to add retry logic for failed inserts and LLM calls in this async version? Or should I show an architecture diagram for scaling this async pipeline with multiple workers and connection pools?
+
+
+
+
+
+
+
+
+You said:
+
+Add retry logic to async script
+Copilot said:
+Copilot
+Here’s the async version with retry logic added for both:
+
+✔ LLM + embedding calls
+✔ Database inserts
+
+We’ll use exponential backoff for retries to avoid hammering the system.
+
+✅ Full Async Script with Retry Logic
+
+
+
+Python
+import asyncio
+import time
+import logging
+from psycopg_pool import AsyncConnectionPool
+from sentence_transformers import SentenceTransformer
+from langchain.llms import Ollama
+from langchain.prompts import PromptTemplate
+
+# -------------------------
+# CONFIGURATION
+# -------------------------
+DB_CONN_STR = "dbname=mydb user=myuser password=mypass host=localhost"
+MAX_BATCH_SIZE = 500
+POOL_MIN = 1
+POOL_MAX = 10
+MAX_RETRIES = 3
+RETRY_DELAY = 2  # seconds
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+# -------------------------
+# GLOBAL COMPONENTS
+# -------------------------
+model = SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
+llm = Ollama(model="bielik")
+
+TAX_PROMPTS = {
+    "VAT": "Odpowiedz na pytania dotyczące podatku VAT: {questions}",
+    "CIT": "Odpowiedz na pytania dotyczące podatku CIT: {questions}",
+    "PIT": "Odpowiedz na pytania dotyczące podatku PIT: {questions}"
+}
+
+# -------------------------
+# RETRY HELPER
+# -------------------------
+async def retry_async(func, *args, retries=MAX_RETRIES, delay=RETRY_DELAY):
+    for attempt in range(retries):
+        try:
+            return await func(*args)
+        except Exception as e:
+            logging.warning(f"Attempt {attempt+1} failed: {e}")
+            if attempt < retries - 1:
+                await asyncio.sleep(delay * (2 ** attempt))  # exponential backoff
+    raise RuntimeError(f"Failed after {retries} attempts")
+
+# -------------------------
+# ASYNC PROCESSING FUNCTION
+# -------------------------
+async def process_tax_query(tax_type, user_text, questions):
+    timings = {}
+    try:
+        # Step 1: Prompt
+        start = time.perf_counter()
+        prompt_template = PromptTemplate(template=TAX_PROMPTS[tax_type], input_variables=["questions"])
+        prompt = prompt_template.format(questions=questions)
+        timings['prompt_assignment'] = time.perf_counter() - start
+
+        # Step 2: LLM response with retry
+        start = time.perf_counter()
+        response = await retry_async(asyncio.to_thread, llm, prompt + "\n" + user_text)
+        timings['llm_response'] = time.perf_counter() - start
+
+        # Step 3: Embedding with retry
+        start = time.perf_counter()
+        embedding = await retry_async(asyncio.to_thread, model.encode, response)
+        timings['vectorization'] = time.perf_counter() - start
+
+        return (tax_type, user_text, response, embedding), timings
+    except Exception as e:
+        logging.error(f"Error processing query: {e}")
+        return None, None
+
+# -------------------------
+# ASYNC DYNAMIC BATCH INSERT WITH RETRY
+# -------------------------
+async def dynamic_batch_insert(results, pool, max_batch_size=MAX_BATCH_SIZE):
+    total = len(results)
+    if total == 0:
+        logging.warning("No results to insert.")
+        return
+
+    batch_size = min(max_batch_size, max(50, total // 10))
+    logging.info(f"Inserting {total} rows in batches of {batch_size}")
+
+    for i in range(0, total, batch_size):
+        batch = results[i:i + batch_size]
+
+        async def insert_batch():
+            async with pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.executemany("""
+                        INSERT INTO tax_responses (tax_type, user_text, response, embedding)
+                        VALUES (%s, %s, %s, %s)
+                    """, [(r[0], r[1], r[2], r[3].tolist()) for r in batch])
+                await conn.commit()
+
+        try:
+            await retry_async(insert_batch)
+            logging.info(f"Inserted batch {i // batch_size + 1}")
+        except Exception as e:
+            logging.error(f"Failed to insert batch {i // batch_size + 1}: {e}")
+
+# -------------------------
+# MAIN ASYNC PIPELINE
+# -------------------------
+async def main():
+    queries = [
+        ("VAT", "Jak obliczyć podatek VAT?", "Proszę wyjaśnić zasady naliczania VAT"),
+        ("CIT", "Jak wygląda rozliczenie CIT?", "Jakie są stawki CIT w Polsce?"),
+        ("PIT", "Jak rozliczyć PIT?", "Jakie ulgi są dostępne?")
+    ]
+
+    start_total = time.perf_counter()
+
+    # Process queries concurrently
+    tasks = [process_tax_query(*q) for q in queries]
+    results_with_timings = await asyncio.gather(*tasks)
+
+    valid_results = [r for r, t in results_with_timings if r is not None]
+    timings_list = [t for r, t in results_with_timings if t is not None]
+
+    # Connection pool
+    pool = AsyncConnectionPool(DB_CONN_STR, min_size=POOL_MIN, max_size=POOL_MAX)
+    await pool.open()
+
+    await dynamic_batch_insert(valid_results, pool)
+    await pool.close()
+
+    logging.info(f"Total processing time: {time.perf_counter() - start_total:.2f}s")
+    logging.info(f"Step timings: {timings_list}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+Pokaż więcej wierszy
+✅ What Changed
+Added retry_async() helper with exponential backoff.
+Wrapped:
+LLM call (llm) in retry logic.
+Embedding generation in retry logic.
+DB batch insert in retry logic.
+Logs warnings on retries and errors on final failure.
+✅ Benefits
+Handles transient failures (network hiccups, DB locks).
+Avoids hammering Postgres or LLM service.
+Scales well for large batches.
+👉 Next step:
+Do you want me to add COPY-based bulk loading for millions of rows (faster than executemany) or draw an architecture diagram showing how this async + retry pipeline scales across multiple machines?
+
+
+
+
+
+
+
+
+You said:
+
+Add COPY support for large datasets
+Copilot said:
+Copilot
+Here’s how to add COPY support for very large datasets in the async pipeline. COPY is much faster than executemany because it streams data directly into Postgres in bulk.
+
+✅ Why COPY?
+COPY avoids per-row overhead and uses optimized bulk loading.
+Ideal for millions of rows.
+Requires converting data into a CSV-like format or using StringIO.
+✅ Async COPY Implementation
+
+
+
+Python
+import io
+import asyncio
+import logging
+from psycopg_pool import AsyncConnectionPool
+
+async def copy_insert(results, pool):
+    """
+    Use COPY for bulk insert of results into Postgres.
+    results: list of tuples (tax_type, user_text, response, embedding)
+    """
+    if not results:
+        logging.warning("No results to insert.")
+        return
+
+    # Prepare CSV-like data in memory
+    buffer = io.StringIO()
+    for r in results:
+        # Convert embedding to space-separated string
+        embedding_str = "{" + ",".join(map(str, r[3].tolist())) + "}"
+        buffer.write(f"{r[0]}\t{r[1]}\t{r[2]}\t{embedding_str}\n")
+    buffer.seek(0)
+
+    try:
+        async with pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.copy("COPY tax_responses (tax_type, user_text, response, embedding) FROM STDIN WITH (FORMAT text)", buffer)
+            await conn.commit()
+        logging.info(f"COPY inserted {len(results)} rows successfully.")
+    except Exception as e:
+        logging.error(f"Error during COPY: {e}")
+
+Pokaż więcej wierszy
+✅ Integration in Async Pipeline
+Replace dynamic_batch_insert() with copy_insert() when dataset is large:
+
+
+
+
+Python
+if len(valid_results) > 10000:  # threshold for large dataset
+    await copy_insert(valid_results, pool)
+else:
+    await dynamic_batch_insert(valid_results, pool)
+✅ Performance Notes
+COPY can handle hundreds of thousands of rows in seconds.
+Ensure:
+Postgres table has correct column types (embedding VECTOR(384) for pgvector).
+Use tab-delimited or CSV format.
+For pgvector, you can store as array or use ::vector cast if needed.
+👉 Do you want me to write the full async script with COPY fallback logic, retry support, and dynamic batching combined? Or should I draw an architecture diagram showing how this scales across multiple machines with COPY and pooling?
+
+
+
+
+
+
+
+
+You said:
+
+Show full script with COPY integration
+Copilot said:
+Copilot
+Here’s the full async script with COPY integration, dynamic batching, and retry logic combined. This version automatically switches to COPY for large datasets and uses executemany for smaller ones.
+
+✅ Complete Async Pipeline
+
+
+
+Python
+import asyncio
+import time
+import logging
+import io
+from psycopg_pool import AsyncConnectionPool
+from sentence_transformers import SentenceTransformer
+from langchain.llms import Ollama
+from langchain.prompts import PromptTemplate
+
+# -------------------------
+# CONFIGURATION
+# -------------------------
+DB_CONN_STR = "dbname=mydb user=myuser password=mypass host=localhost"
+MAX_BATCH_SIZE = 500
+POOL_MIN = 1
+POOL_MAX = 10
+MAX_RETRIES = 3
+RETRY_DELAY = 2  # seconds
+COPY_THRESHOLD = 10000  # rows threshold for COPY
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+# -------------------------
+# GLOBAL COMPONENTS
+# -------------------------
+model = SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
+llm = Ollama(model="bielik")
+
+TAX_PROMPTS = {
+    "VAT": "Odpowiedz na pytania dotyczące podatku VAT: {questions}",
+    "CIT": "Odpowiedz na pytania dotyczące podatku CIT: {questions}",
+    "PIT": "Odpowiedz na pytania dotyczące podatku PIT: {questions}"
+}
+
+# -------------------------
+# RETRY HELPER
+# -------------------------
+async def retry_async(func, *args, retries=MAX_RETRIES, delay=RETRY_DELAY):
+    for attempt in range(retries):
+        try:
+            return await func(*args)
+        except Exception as e:
+            logging.warning(f"Attempt {attempt+1} failed: {e}")
+            if attempt < retries - 1:
+                await asyncio.sleep(delay * (2 ** attempt))  # exponential backoff
+    raise RuntimeError(f"Failed after {retries} attempts")
+
+# -------------------------
+# ASYNC PROCESSING FUNCTION
+# -------------------------
+async def process_tax_query(tax_type, user_text, questions):
+    timings = {}
+    try:
+        # Step 1: Prompt
+        start = time.perf_counter()
+        prompt_template = PromptTemplate(template=TAX_PROMPTS[tax_type], input_variables=["questions"])
+        prompt = prompt_template.format(questions=questions)
+        timings['prompt_assignment'] = time.perf_counter() - start
+
+        # Step 2: LLM response with retry
+        start = time.perf_counter()
+        response = await retry_async(asyncio.to_thread, llm, prompt + "\n" + user_text)
+        timings['llm_response'] = time.perf_counter() - start
+
+        # Step 3: Embedding with retry
+        start = time.perf_counter()
+        embedding = await retry_async(asyncio.to_thread, model.encode, response)
+        timings['vectorization'] = time.perf_counter() - start
+
+        return (tax_type, user_text, response, embedding), timings
+    except Exception as e:
+        logging.error(f"Error processing query: {e}")
+        return None, None
+
+# -------------------------
+# DYNAMIC BATCH INSERT
+# -------------------------
+async def dynamic_batch_insert(results, pool, max_batch_size=MAX_BATCH_SIZE):
+    total = len(results)
+    if total == 0:
+        logging.warning("No results to insert.")
+        return
+
+    batch_size = min(max_batch_size, max(50, total // 10))
+    logging.info(f"Inserting {total} rows in batches of {batch_size}")
+
+    for i in range(0, total, batch_size):
+        batch = results[i:i + batch_size]
+
+        async def insert_batch():
+            async with pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.executemany("""
+                        INSERT INTO tax_responses (tax_type, user_text, response, embedding)
+                        VALUES (%s, %s, %s, %s)
+                    """, [(r[0], r[1], r[2], r[3].tolist()) for r in batch])
+                await conn.commit()
+
+        try:
+            await retry_async(insert_batch)
+            logging.info(f"Inserted batch {i // batch_size + 1}")
+        except Exception as e:
+            logging.error(f"Failed to insert batch {i // batch_size + 1}: {e}")
+
+# -------------------------
+# COPY INSERT FOR LARGE DATASETS
+# -------------------------
+async def copy_insert(results, pool):
+    if not results:
+        logging.warning("No results to insert.")
+        return
+
+    buffer = io.StringIO()
+    for r in results:
+        embedding_str = "{" + ",".join(map(str, r[3].tolist())) + "}"
+        buffer.write(f"{r[0]}\t{r[1]}\t{r[2]}\t{embedding_str}\n")
+    buffer.seek(0)
+
+    async def do_copy():
+        async with pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.copy("COPY tax_responses (tax_type, user_text, response, embedding) FROM STDIN WITH (FORMAT text)", buffer)
+            await conn.commit()
+
+    try:
+        await retry_async(do_copy)
+        logging.info(f"COPY inserted {len(results)} rows successfully.")
+    except Exception as e:
+        logging.error(f"Error during COPY: {e}")
+
+# -------------------------
+# MAIN ASYNC PIPELINE
+# -------------------------
+async def main():
+    queries = [
+        ("VAT", "Jak obliczyć podatek VAT?", "Proszę wyjaśnić zasady naliczania VAT"),
+        ("CIT", "Jak wygląda rozliczenie CIT?", "Jakie są stawki CIT w Polsce?"),
+        ("PIT", "Jak rozliczyć PIT?", "Jakie ulgi są dostępne?")
+    ]
+
+    start_total = time.perf_counter()
+
+    # Process queries concurrently
+    tasks = [process_tax_query(*q) for q in queries]
+    results_with_timings = await asyncio.gather(*tasks)
+
+    valid_results = [r for r, t in results_with_timings if r is not None]
+    timings_list = [t for r, t in results_with_timings if t is not None]
+
+    # Connection pool
+    pool = AsyncConnectionPool(DB_CONN_STR, min_size=POOL_MIN, max_size=POOL_MAX)
+    await pool.open()
+
+    # Decide between COPY and batch insert
+    if len(valid_results) > COPY_THRESHOLD:
+        await copy_insert(valid_results, pool)
+    else:
+        await dynamic_batch_insert(valid_results, pool)
+
+    await pool.close()
+
+    logging.info(f"Total processing time: {time.perf_counter() - start_total:.2f}s")
+    logging.info(f"Step timings: {timings_list}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+Pokaż więcej wierszy
+✅ Key Features
+✔ Async pipeline for LLM + embeddings + DB
+✔ Retry logic for LLM, embeddings, and DB operations
+✔ Dynamic batching for small datasets
+✔ COPY fallback for large datasets (threshold configurable)
+✔ Connection pooling for efficient DB access
+
+✅ Performance
+For <10k rows → executemany with dynamic batching.
+For ≥10k rows → COPY for bulk loading (10x faster).
+👉 Next step:
+Do you want me to draw an architecture diagram showing how this async pipeline scales across multiple machines with COPY and pooling? Or add metrics collection (Prometheus/OpenTelemetry) for monitoring performance and retries?
+
+
+
+
+
+
+
+
+You said:
+
+Draw architecture diagram for this pipeline

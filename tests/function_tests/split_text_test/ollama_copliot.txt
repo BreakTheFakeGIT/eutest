@@ -1,0 +1,2487 @@
+Dzisiaj
+You said:
+
+I'm using Python, Langchain, a sentence transformer, a Postgres database with Psycopg 3 (not Alchemy), pg_vector, and an Ollama local language model for Polish, such as Bielik. I want to write a Python function that includes:
+1) assigns a prompt with questions to a given tax, depending on the tax type.
+2) The user enters text, and the language model responds according to the prompt.
+3) The results are saved in a dictionary (Python), which can be used for vectorization.
+4) vectorize the results.
+5) measure the time for each step.
+6) save to the Postgres database.
+Copilot said:
+Copilot
+Here’s a structured approach to implement your requirements in Python using LangChain, Sentence Transformers, Psycopg3, pg_vector, and Ollama:
+
+✅ Steps to Implement
+Define prompts based on tax type
+Create a dictionary mapping tax types to prompts.
+
+Get user input and query the local LLM (Ollama)
+Use LangChain’s Ollama integration to send the prompt + user text to Bielik.
+
+Store results in a Python dictionary
+Include metadata like tax type, user input, and model response.
+
+Vectorize the response
+Use sentence-transformers to generate embeddings.
+
+Measure time for each step
+Use time.perf_counter() for precise timing.
+
+Save to Postgres with pg_vector
+Use Psycopg3 to insert text and embeddings into a table with a vector column.
+
+✅ Example Code
+
+
+
+Python
+import time
+import psycopg
+from langchain.llms import Ollama
+from sentence_transformers import SentenceTransformer
+
+# Initialize components
+llm = Ollama(model="bielik")  # Local Polish model
+embedder = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+
+# Database connection
+conn = psycopg.connect("dbname=mydb user=myuser password=mypass host=localhost")
+cursor = conn.cursor()
+
+# Prompts for different tax types
+PROMPTS = {
+    "VAT": "Odpowiedz na pytania dotyczące podatku VAT: ",
+    "CIT": "Odpowiedz na pytania dotyczące podatku CIT: ",
+    "PIT": "Odpowiedz na pytania dotyczące podatku PIT: "
+}
+
+def process_tax_query(tax_type: str, user_text: str):
+    timings = {}
+    
+    # Step 1: Assign prompt
+    start = time.perf_counter()
+    prompt = PROMPTS.get(tax_type, "Odpowiedz na pytania dotyczące podatków: ")
+    timings["prompt_assignment"] = time.perf_counter() - start
+
+    # Step 2: Query LLM
+    start = time.perf_counter()
+    response = llm(prompt + user_text)
+    timings["llm_response"] = time.perf_counter() - start
+
+    # Step 3: Save in dictionary
+    start = time.perf_counter()
+    result_dict = {
+        "tax_type": tax_type,
+        "user_text": user_text,
+        "response": response
+    }
+    timings["dict_creation"] = time.perf_counter() - start
+
+    # Step 4: Vectorize
+    start = time.perf_counter()
+    embedding = embedder.encode(response).tolist()
+    timings["vectorization"] = time.perf_counter() - start
+
+    # Step 5: Save to Postgres
+    start = time.perf_counter()
+    cursor.execute(
+        "INSERT INTO tax_responses (tax_type, user_text, response, embedding) VALUES (%s, %s, %s, %s)",
+        (tax_type, user_text, response, embedding)
+    )
+    conn.commit()
+    timings["db_insert"] = time.perf_counter() - start
+
+    return result_dict, timings
+
+# Example usage
+result, timings = process_tax_query("VAT", "Jakie są stawki VAT na książki?")
+print("Result:", result)
+print("Timings:", timings)
+
+Pokaż więcej wierszy
+✅ Database Setup for pg_vector
+
+
+
+SQL
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE TABLE tax_responses (
+    id SERIAL PRIMARY KEY,
+    tax_type TEXT,
+    user_text TEXT,
+    response TEXT,
+    embedding VECTOR(384)  -- depends on your model dimension
+);
+✅ Key Points
+LangChain Ollama: Works with local models like Bielik.
+SentenceTransformer: Use a multilingual model for Polish.
+pg_vector: Ensure the dimension matches your embedding model.
+Timing: time.perf_counter() is best for performance measurement.
+Do you want me to extend this into a full LangChain pipeline (with PromptTemplate, LLMChain, and possibly RunnableSequence) or keep it as a simple function-based approach?
+Also, should I add error handling and logging for production use?
+
+
+
+
+
+
+
+
+You said:
+
+How to optimize vectorization speed?
+Copilot said:
+Copilot
+Great question! Vectorization speed can become a bottleneck, especially when processing large volumes of text. Here are practical optimization strategies for your setup:
+
+✅ 1. Use a Fast Sentence Transformer Model
+Choose a lightweight model optimized for speed:
+paraphrase-multilingual-MiniLM-L12-v2 is good, but for even faster performance:
+distiluse-base-multilingual-cased-v2 (smaller, faster)
+all-MiniLM-L6-v2 (English-focused, but works decently for Polish)
+Smaller models = faster inference, but slightly lower accuracy.
+✅ 2. Batch Processing
+Instead of encoding one response at a time, batch multiple texts:
+
+
+
+Python
+embeddings = embedder.encode(list_of_texts, batch_size=32)
+Adjust batch_size based on your GPU/CPU memory.
+✅ 3. Enable GPU Acceleration
+If you have a GPU, install PyTorch with CUDA and ensure SentenceTransformers uses it:
+
+
+
+Python
+embedder = SentenceTransformer(model_name, device='cuda')
+This can speed up vectorization by 10x or more compared to CPU.
+✅ 4. Use FP16 or Quantization
+For GPU: enable half-precision (FP16) for faster inference:
+
+
+
+Python
+embedder = SentenceTransformer(model_name, device='cuda')
+embedder.model.half()
+For CPU: consider quantized models (e.g., int8) using libraries like bitsandbytes.
+✅ 5. Parallelization
+Use multi-threading or multiprocessing for CPU-based encoding:
+
+
+
+Python
+embeddings = embedder.encode(texts, batch_size=32, show_progress_bar=True, num_workers=4)
+
+num_workers helps utilize multiple cores.
+✅ 6. Cache Results
+If you process similar texts repeatedly, cache embeddings in memory or Redis.
+Avoid recomputing embeddings for identical responses.
+✅ 7. Streaming + Async
+For real-time systems, use async encoding and stream results to DB while processing next batch.
+✅ 8. Database Optimization
+Store embeddings as binary arrays instead of JSON for faster inserts.
+Use COPY for bulk inserts instead of individual INSERT.
+Do you want me to: ✔ Show you an optimized version of your function with batching, GPU support, and timing improvements?
+✔ Or design a full pipeline for high-throughput vectorization and Postgres insertion?
+
+Which one fits your use case better?
+
+
+
+
+
+
+
+
+You said:
+
+How to use GPU with SentenceTransformers?
+Copilot said:
+Copilot
+To use GPU with SentenceTransformers, you need to make sure:
+
+✅ 1. Install PyTorch with CUDA
+Check if CUDA is available:
+
+
+
+
+Shell
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+(Replace cu118 with your CUDA version, e.g., cu121 for CUDA 12.1)
+
+Verify:
+
+
+
+
+Python
+import torch
+
+✅ 2. Load SentenceTransformer on GPU
+When initializing the model:
+
+
+
+
+Python
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device="cuda")
+
+This ensures embeddings are computed on GPU.
+
+✅ 3. Optimize GPU Usage
+Use batching:
+
+
+
+Python
+texts = ["text1", "text2", "text3"]
+embeddings = model.encode(texts, batch_size=32, device="cuda")
+
+Enable FP16 precision for speed:
+
+
+
+Python
+model.model.half()
+✅ 4. Monitor GPU
+Use nvidia-smi to check GPU utilization during encoding.
+
+Do you want me to give you a full optimized function for your pipeline using GPU acceleration, batching, and timing improvements?
+Or show how to combine GPU SentenceTransformers with your Postgres + pg_vector workflow?
+
+
+
+
+
+
+
+
+You said:
+
+Show how to vectorize multiple responses
+Copilot said:
+Copilot
+Here’s how you can vectorize multiple responses efficiently using SentenceTransformers, with batching and GPU support:
+
+✅ Example: Batch Vectorization of Multiple Responses
+
+
+
+Python
+from sentence_transformers import SentenceTransformer
+
+# Load model on GPU
+model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device="cuda")
+
+# Example list of responses
+responses = [
+    "Stawka VAT na książki wynosi 5%.",
+    "Podatek CIT dla małych firm to 9%.",
+    "PIT można rozliczyć do końca kwietnia."
+]
+
+# Batch encode for speed
+embeddings = model.encode(responses, batch_size=32, convert_to_numpy=True)
+
+print("Shape of embeddings:", embeddings.shape)  # (3, 384) for MiniLM
+
+Pokaż więcej wierszy
+✅ Key Optimizations
+Batching: batch_size=32 or higher if GPU memory allows.
+GPU: device="cuda" for acceleration.
+Convert to NumPy: convert_to_numpy=True for easy DB insertion.
+FP16 Precision (optional for speed):
+
+
+
+Python
+model.model.half()
+✅ Insert into Postgres with pg_vector
+Assuming your table has embedding VECTOR(384):
+
+
+
+
+Python
+import psycopg
+
+conn = psycopg.connect("dbname=mydb user=myuser password=mypass host=localhost")
+cursor = conn.cursor()
+
+for response, embedding in zip(responses, embeddings):
+    cursor.execute(
+        "INSERT INTO tax_responses (response, embedding) VALUES (%s, %s)",
+        (response, embedding.tolist())  # Convert to list for JSON-like storage
+    )
+
+conn.commit()
+Do you want me to combine this with your previous pipeline (prompt assignment → LLM → batch vectorization → DB insert → timing)?
+Or show a high-throughput version that handles thousands of responses efficiently?
+
+
+
+
+
+
+
+
+You said:
+
+How to optimize batch size?
+Copilot said:
+Copilot
+Optimizing batch size for SentenceTransformers is about balancing speed vs. memory usage. Here’s how to do it:
+
+✅ Why Batch Size Matters
+Larger batch size → fewer forward passes → faster overall encoding.
+But too large → GPU out-of-memory (OOM) errors.
+Optimal batch size depends on:
+Model size (MiniLM vs. large transformer)
+GPU memory (e.g., 4GB vs. 24GB)
+Sequence length (longer texts = more memory)
+✅ How to Find the Optimal Batch Size
+Start small and increase gradually:
+
+
+
+Python
+batch_size = 16  # start here
+Monitor GPU memory:
+Use nvidia-smi while running encoding.
+Increase until you hit OOM, then back off by ~20%.
+✅ Practical Guidelines
+For MiniLM models:
+4GB GPU → batch size ~16–32
+8GB GPU → batch size ~64
+16GB GPU → batch size ~128+
+For larger models (e.g., mpnet):
+Reduce batch size by half.
+✅ Code Example with Dynamic Batch Size
+
+
+
+Python
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device="cuda")
+
+texts = ["text1", "text2", "text3", ...]  # large list
+
+# Try different batch sizes
+for bs in [16, 32, 64, 128]:
+    try:
+        embeddings = model.encode(texts, batch_size=bs, device="cuda")
+        print(f"Batch size {bs} worked!")
+    except RuntimeError as e:
+        print(f"Batch size {bs} failed: {e}")
+        break
+
+Pokaż więcej wierszy
+✅ Extra Tips
+Use FP16 precision (model.model.half()) to reduce memory footprint.
+If still limited, truncate text length or split long documents.
+For huge datasets, use streaming batches and insert embeddings into DB incrementally.
+👉 Do you want me to give you a full optimized pipeline that:
+
+Handles dynamic batch size detection
+Uses GPU acceleration + FP16
+Inserts embeddings into Postgres with pg_vector in bulk
+?
+
+
+
+
+
+
+
+You said:
+
+Show dynamic batch size detection
+Copilot said:
+Copilot
+Here’s a dynamic batch size detection approach that automatically finds the largest batch size your GPU can handle without running out of memory:
+
+✅ Dynamic Batch Size Detection Code
+
+
+
+Python
+from sentence_transformers import SentenceTransformer
+import torch
+
+# Load model on GPU
+model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device="cuda")
+
+texts = ["tekst " + str(i) for i in range(1000)]  # Example large dataset
+
+def find_max_batch_size(model, texts, start=16, max_try=512):
+    batch_size = start
+    last_success = start
+    while batch_size <= max_try:
+        try:
+            print(f"Trying batch size: {batch_size}")
+            _ = model.encode(texts[:batch_size], batch_size=batch_size, device="cuda")
+            last_success = batch_size
+            batch_size *= 2  # Double batch size each time
+        except RuntimeError as e:
+            if "CUDA out of memory" in str(e):
+                print(f"OOM at batch size {batch_size}. Max safe: {last_success}")
+                torch.cuda.empty_cache()
+                break
+            else:
+                raise e
+    return last_success
+
+optimal_batch_size = find_max_batch_size(model, texts)
+print(f"Optimal batch size: {optimal_batch_size}")
+
+Pokaż więcej wierszy
+✅ How It Works
+Starts at start (e.g., 16) and doubles batch size until OOM occurs.
+Catches RuntimeError for CUDA memory issues.
+Clears GPU cache after failure.
+Returns largest safe batch size.
+✅ Use Optimal Batch Size for Encoding
+
+
+
+Python
+embeddings = model.encode(texts, batch_size=optimal_batch_size, device="cuda", convert_to_numpy=True)
+✅ Extra Optimizations
+Enable FP16 precision:
+
+
+
+Python
+model.model.half()
+If texts are long, truncate or chunk them before encoding.
+👉 Do you want me to integrate this dynamic batch size detection into your full pipeline (prompt → LLM → batch vectorization → Postgres insert → timing)?
+Or create a reusable utility function for high-throughput embedding workflows?
+
+
+
+
+
+
+
+
+You said:
+
+Integrate this into the full pipeline
+Copilot said:
+Copilot
+Here’s a full pipeline that integrates:
+
+✔ Prompt assignment
+✔ LLM response (Ollama + Bielik)
+✔ Dynamic batch size detection for embeddings
+✔ GPU acceleration + FP16 optimization
+✔ Timing for each step
+✔ Bulk insertion into Postgres with pg_vector
+
+✅ Full Optimized Pipeline
+
+
+
+Python
+import time
+import torch
+import psycopg
+from langchain.llms import Ollama
+from sentence_transformers import SentenceTransformer
+
+# Initialize components
+llm = Ollama(model="bielik")  # Local Polish LLM
+embedder = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device="cuda")
+embedder.model.half()  # FP16 for speed
+
+# Database connection
+conn = psycopg.connect("dbname=mydb user=myuser password=mypass host=localhost")
+cursor = conn.cursor()
+
+# Prompts for different tax types
+PROMPTS = {
+    "VAT": "Odpowiedz na pytania dotyczące podatku VAT: ",
+    "CIT": "Odpowiedz na pytania dotyczące podatku CIT: ",
+    "PIT": "Odpowiedz na pytania dotyczące podatku PIT: "
+}
+
+# Dynamic batch size detection
+def find_max_batch_size(model, sample_texts, start=16, max_try=512):
+    batch_size = start
+    last_success = start
+    while batch_size <= max_try:
+        try:
+            _ = model.encode(sample_texts[:batch_size], batch_size=batch_size)
+            last_success = batch_size
+            batch_size *= 2
+        except RuntimeError as e:
+            if "CUDA out of memory" in str(e):
+                torch.cuda.empty_cache()
+                break
+            else:
+                raise e
+    return last_success
+
+def process_tax_queries(tax_type: str, user_texts: list):
+    timings = {}
+    
+    # Step 1: Assign prompt
+    start = time.perf_counter()
+    prompt = PROMPTS.get(tax_type, "Odpowiedz na pytania dotyczące podatków: ")
+    timings["prompt_assignment"] = time.perf_counter() - start
+
+    # Step 2: Query LLM for each text
+    start = time.perf_counter()
+    responses = [llm(prompt + text) for text in user_texts]
+    timings["llm_responses"] = time.perf_counter() - start
+
+    # Step 3: Prepare dictionary
+    start = time.perf_counter()
+    result_dicts = [{"tax_type": tax_type, "user_text": ut, "response": r} for ut, r in zip(user_texts, responses)]
+    timings["dict_creation"] = time.perf_counter() - start
+
+    # Step 4: Dynamic batch size detection
+    start = time.perf_counter()
+    optimal_batch_size = find_max_batch_size(embedder, responses)
+    timings["batch_size_detection"] = time.perf_counter() - start
+
+    # Step 5: Vectorize in batches
+    start = time.perf_counter()
+    embeddings = embedder.encode(responses, batch_size=optimal_batch_size, convert_to_numpy=True)
+    timings["vectorization"] = time.perf_counter() - start
+
+    # Step 6: Bulk insert into Postgres
+    start = time.perf_counter()
+    for rd, emb in zip(result_dicts, embeddings):
+        cursor.execute(
+            "INSERT INTO tax_responses (tax_type, user_text, response, embedding) VALUES (%s, %s, %s, %s)",
+            (rd["tax_type"], rd["user_text"], rd["response"], emb.tolist())
+        )
+    conn.commit()
+    timings["db_insert"] = time.perf_counter() - start
+
+    return result_dicts, timings
+
+# Example usage
+texts = ["Jakie są stawki VAT na książki?", "Czy VAT na usługi IT wynosi 23%?"]
+results, timings = process_tax_queries("VAT", texts)
+
+print("Results:", results)
+print("Timings:", timings)
+
+Pokaż więcej wierszy
+✅ Database Schema Reminder
+
+
+
+SQL
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE TABLE tax_responses (
+    id SERIAL PRIMARY KEY,
+    tax_type TEXT,
+    user_text TEXT,
+    response TEXT,
+    embedding VECTOR(384)  -- match model dimension
+);
+
+✅ Key Features
+Dynamic batch size detection → maximizes GPU utilization safely.
+FP16 precision → reduces memory footprint and speeds up inference.
+Bulk insertion → avoids per-row overhead.
+Timing metrics → easy performance monitoring.
+👉 Do you want me to add error handling + logging for production, or extend this pipeline with LangChain’s PromptTemplate and LLMChain for better prompt management?
+Or should I show how to scale this for thousands of queries using streaming batches and async DB inserts?
+
+
+
+
+
+
+
+
+You said:
+
+Show how to scale for thousands
+Copilot said:
+Copilot
+To scale your pipeline for thousands of queries, you need to focus on throughput, memory efficiency, and database performance. Here’s how to do it:
+
+✅ Key Strategies for Scaling
+Streaming Batches
+
+Process queries in chunks (e.g., 500–1000 at a time) instead of loading all into memory.
+Use generators or iterators to avoid huge lists in RAM.
+Async or Parallel LLM Calls
+
+Ollama is local, so you can use async tasks or thread pools to query multiple prompts concurrently.
+Batch Embedding + Dynamic Batch Size
+
+Detect optimal batch size once, then reuse it for all batches.
+Encode responses in batches for GPU efficiency.
+Bulk Insert into Postgres
+
+Use COPY or executemany() for inserting thousands of rows at once.
+Avoid committing after every row.
+Monitoring & Logging
+
+Track timings per batch and overall throughput.
+✅ Scalable Pipeline Example
+
+
+
+Python
+import time
+import torch
+import psycopg
+from langchain.llms import Ollama
+from sentence_transformers import SentenceTransformer
+from concurrent.futures import ThreadPoolExecutor
+
+# Initialize components
+llm = Ollama(model="bielik")
+embedder = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device="cuda")
+embedder.model.half()  # FP16 for speed
+
+conn = psycopg.connect("dbname=mydb user=myuser password=mypass host=localhost")
+cursor = conn.cursor()
+
+PROMPTS = {
+    "VAT": "Odpowiedz na pytania dotyczące podatku VAT: ",
+    "CIT": "Odpowiedz na pytania dotyczące podatku CIT: ",
+    "PIT": "Odpowiedz na pytania dotyczące podatku PIT: "
+}
+
+def find_max_batch_size(model, sample_texts, start=16, max_try=512):
+    batch_size = start
+    last_success = start
+    while batch_size <= max_try:
+        try:
+            _ = model.encode(sample_texts[:batch_size], batch_size=batch_size)
+            last_success = batch_size
+            batch_size *= 2
+        except RuntimeError as e:
+            if "CUDA out of memory" in str(e):
+                torch.cuda.empty_cache()
+                break
+            else:
+                raise e
+    return last_success
+
+def process_batch(tax_type, user_texts, optimal_batch_size):
+    prompt = PROMPTS.get(tax_type, "Odpowiedz na pytania dotyczące podatków: ")
+    
+    # Parallel LLM calls
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        responses = list(executor.map(lambda t: llm(prompt + t), user_texts))
+    
+    # Vectorize in batches
+    embeddings = embedder.encode(responses, batch_size=optimal_batch_size, convert_to_numpy=True)
+    
+    # Bulk insert
+    data = [(tax_type, ut, r, emb.tolist()) for ut, r, emb in zip(user_texts, responses, embeddings)]
+    cursor.executemany(
+        "INSERT INTO tax_responses (tax_type, user_text, response, embedding) VALUES (%s, %s, %s, %s)",
+        data
+    )
+    conn.commit()
+
+def process_large_dataset(tax_type, all_texts, batch_size=500):
+    timings = {}
+    start_total = time.perf_counter()
+    
+    # Detect optimal batch size once
+    optimal_batch_size = find_max_batch_size(embedder, all_texts[:100])
+    
+    for i in range(0, len(all_texts), batch_size):
+        batch = all_texts[i:i+batch_size]
+        start = time.perf_counter()
+        process_batch(tax_type, batch, optimal_batch_size)
+        timings[f"batch_{i//batch_size}"] = time.perf_counter() - start
+    
+    timings["total"] = time.perf_counter() - start_total
+    return timings
+
+# Example usage
+texts = [f"Jakie są stawki VAT dla produktu {i}?" for i in range(5000)]
+timings = process_large_dataset("VAT", texts)
+print("Timings:", timings)
+
+Pokaż mniej
+✅ Why This Scales
+ThreadPoolExecutor → parallel LLM calls for speed.
+Dynamic batch size detection → max GPU utilization.
+Bulk DB insert → reduces overhead.
+Streaming batches → avoids memory blow-up.
+👉 Do you want me to add async support for Ollama (true concurrency) and Postgres COPY for ultra-fast inserts?
+Or show how to integrate LangChain’s RunnableSequence for structured workflows at scale?
+
+
+
+
+
+
+
+
+You said:
+
+Add async support for Ollama
+Copilot said:
+Copilot
+Here’s how you can add true async support for Ollama and scale your pipeline for thousands of queries:
+
+✅ Why Async?
+Ollama runs locally and supports streaming responses, so using asyncio lets you send multiple requests concurrently without blocking.
+This is much faster than sequential calls or even thread pools for I/O-bound tasks.
+✅ Async Ollama Integration
+LangChain’s Ollama wrapper doesn’t natively expose async, but you can use Ollama’s HTTP API or aiohttp for async calls.
+
+✅ Full Scalable Async Pipeline
+
+
+
+Python
+import asyncio
+import aiohttp
+import time
+import torch
+import psycopg
+from sentence_transformers import SentenceTransformer
+
+# Initialize SentenceTransformer on GPU
+embedder = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device="cuda")
+embedder.model.half()  # FP16 for speed
+
+# Database connection
+conn = psycopg.connect("dbname=mydb user=myuser password=mypass host=localhost")
+cursor = conn.cursor()
+
+PROMPTS = {
+    "VAT": "Odpowiedz na pytania dotyczące podatku VAT: ",
+    "CIT": "Odpowiedz na pytania dotyczące podatku CIT: ",
+    "PIT": "Odpowiedz na pytania dotyczące podatku PIT: "
+}
+
+OLLAMA_URL = "http://localhost:11434/api/generate"
+
+async def query_ollama(session, prompt, text):
+    payload = {"model": "bielik", "prompt": prompt + text}
+    async with session.post(OLLAMA_URL, json=payload) as resp:
+        result = await resp.json()
+        return result.get("response", "")
+
+async def process_batch_async(tax_type, user_texts, optimal_batch_size):
+    prompt = PROMPTS.get(tax_type, "Odpowiedz na pytania dotyczące podatków: ")
+    
+    async with aiohttp.ClientSession() as session:
+        tasks = [query_ollama(session, prompt, t) for t in user_texts]
+        responses = await asyncio.gather(*tasks)
+    
+    # Vectorize in batches
+    embeddings = embedder.encode(responses, batch_size=optimal_batch_size, convert_to_numpy=True)
+    
+    # Bulk insert
+    data = [(tax_type, ut, r, emb.tolist()) for ut, r, emb in zip(user_texts, responses, embeddings)]
+    cursor.executemany(
+        "INSERT INTO tax_responses (tax_type, user_text, response, embedding) VALUES (%s, %s, %s, %s)",
+        data
+    )
+    conn.commit()
+
+async def process_large_dataset_async(tax_type, all_texts, batch_size=500):
+    timings = {}
+    start_total = time.perf_counter()
+    
+    # Detect optimal batch size once
+    optimal_batch_size = find_max_batch_size(embedder, all_texts[:100])
+    
+    for i in range(0, len(all_texts), batch_size):
+        batch = all_texts[i:i+batch_size]
+        start = time.perf_counter()
+        await process_batch_async(tax_type, batch, optimal_batch_size)
+        timings[f"batch_{i//batch_size}"] = time.perf_counter() - start
+    
+    timings["total"] = time.perf_counter() - start_total
+    return timings
+
+# Run the async pipeline
+texts = [f"Jakie są stawki VAT dla produktu {i}?" for i in range(5000)]
+asyncio.run(process_large_dataset_async("VAT", texts))
+
+Pokaż więcej wierszy
+✅ Why This Scales Well
+Async Ollama calls → hundreds of concurrent requests without blocking.
+GPU batch encoding → maximum throughput for embeddings.
+Bulk DB insert → minimal overhead.
+Streaming batches → avoids memory blow-up.
+✅ Next-Level Optimizations
+Use asyncpg for fully async Postgres inserts.
+Add rate limiting if Ollama struggles with too many concurrent requests.
+Implement retry logic for failed requests.
+Use COPY FROM STDIN for ultra-fast DB inserts.
+👉 Do you want me to upgrade this pipeline with asyncpg for fully async DB operations and COPY-based bulk insert for maximum speed?
+Or add structured LangChain components (PromptTemplate, RunnableSequence) for better maintainability?
+
+
+
+
+
+
+
+
+You said:
+
+Add retry logic for failed requests
+Copilot said:
+Copilot
+Here’s how you can add retry logic for failed Ollama requests in the async pipeline. This ensures resilience when dealing with network hiccups or temporary model issues.
+
+✅ Updated Async Ollama Query with Retry
+We’ll use exponential backoff for retries:
+
+
+
+
+Python
+import asyncio
+import aiohttp
+import time
+import torch
+import psycopg
+from sentence_transformers import SentenceTransformer
+
+# Initialize SentenceTransformer on GPU
+embedder = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device="cuda")
+embedder.model.half()  # FP16 for speed
+
+# Database connection
+conn = psycopg.connect("dbname=mydb user=myuser password=mypass host=localhost")
+cursor = conn.cursor()
+
+PROMPTS = {
+    "VAT": "Odpowiedz na pytania dotyczące podatku VAT: ",
+    "CIT": "Odpowiedz na pytania dotyczące podatku CIT: ",
+    "PIT": "Odpowiedz na pytania dotyczące podatku PIT: "
+}
+
+OLLAMA_URL = "http://localhost:11434/api/generate"
+
+async def query_ollama(session, prompt, text, retries=3, backoff=2):
+    payload = {"model": "bielik", "prompt": prompt + text}
+    for attempt in range(retries):
+        try:
+            async with session.post(OLLAMA_URL, json=payload, timeout=60) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    return result.get("response", "")
+                else:
+                    raise Exception(f"HTTP {resp.status}")
+        except Exception as e:
+            if attempt < retries - 1:
+                wait_time = backoff ** attempt
+                print(f"Retry {attempt+1}/{retries} after error: {e}. Waiting {wait_time}s...")
+                await asyncio.sleep(wait_time)
+            else:
+                print(f"Failed after {retries} attempts: {e}")
+                return ""  # Return empty or handle differently
+
+async def process_batch_async(tax_type, user_texts, optimal_batch_size):
+    prompt = PROMPTS.get(tax_type, "Odpowiedz na pytania dotyczące podatków: ")
+    
+    async with aiohttp.ClientSession() as session:
+        tasks = [query_ollama(session, prompt, t) for t in user_texts]
+        responses = await asyncio.gather(*tasks)
+    
+    # Vectorize in batches
+    embeddings = embedder.encode(responses, batch_size=optimal_batch_size, convert_to_numpy=True)
+    
+    # Bulk insert
+    data = [(tax_type, ut, r, emb.tolist()) for ut, r, emb in zip(user_texts, responses, embeddings)]
+    cursor.executemany(
+        "INSERT INTO tax_responses (tax_type, user_text, response, embedding) VALUES (%s, %s, %s, %s)",
+        data
+    )
+    conn.commit()
+
+async def process_large_dataset_async(tax_type, all_texts, batch_size=500):
+    timings = {}
+    start_total = time.perf_counter()
+    
+    optimal_batch_size = find_max_batch_size(embedder, all_texts[:100])
+    
+    for i in range(0, len(all_texts), batch_size):
+        batch = all_texts[i:i+batch_size]
+        start = time.perf_counter()
+        await process_batch_async(tax_type, batch, optimal_batch_size)
+        timings[f"batch_{i//batch_size}"] = time.perf_counter() - start
+    
+    timings["total"] = time.perf_counter() - start_total
+    return timings
+
+Pokaż więcej wierszy
+✅ What Changed?
+Added retry logic with exponential backoff (2^attempt seconds).
+Handles:
+Network errors
+Timeout
+Non-200 HTTP responses
+Returns empty string if all retries fail (you can log or store error info instead).
+✅ Next-Level Improvements
+Use asyncpg for fully async DB inserts.
+Add structured logging for retries and failures.
+Implement rate limiting if Ollama struggles under heavy load.
+Optionally skip failed responses or store them with an error flag.
+👉 Do you want me to upgrade this pipeline with asyncpg and COPY-based bulk insert for maximum speed?
+Or add structured LangChain components (PromptTemplate, RunnableSequence) for better maintainability?
+
+
+
+
+
+
+
+
+You said:
+
+Add logging for retry attempts
+Copilot said:
+Copilot
+Here’s the updated async pipeline with retry logic and structured logging for each attempt:
+
+✅ Updated query_ollama with Logging
+
+
+
+Python
+import asyncio
+import aiohttp
+import logging
+import time
+import torch
+import psycopg
+from sentence_transformers import SentenceTransformer
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler()]
+)
+
+# Initialize SentenceTransformer on GPU
+embedder = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device="cuda")
+embedder.model.half()  # FP16 for speed
+
+# Database connection
+conn = psycopg.connect("dbname=mydb user=myuser password=mypass host=localhost")
+cursor = conn.cursor()
+
+PROMPTS = {
+    "VAT": "Odpowiedz na pytania dotyczące podatku VAT: ",
+    "CIT": "Odpowiedz na pytania dotyczące podatku CIT: ",
+    "PIT": "Odpowiedz na pytania dotyczące podatku PIT: "
+}
+
+OLLAMA_URL = "http://localhost:11434/api/generate"
+
+async def query_ollama(session, prompt, text, retries=3, backoff=2):
+    payload = {"model": "bielik", "prompt": prompt + text}
+    for attempt in range(retries):
+        try:
+            logging.info(f"Sending request for text: '{text[:50]}...' (Attempt {attempt+1})")
+            async with session.post(OLLAMA_URL, json=payload, timeout=60) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    logging.info(f"Success for text: '{text[:50]}...'")
+                    return result.get("response", "")
+                else:
+                    raise Exception(f"HTTP {resp.status}")
+        except Exception as e:
+            if attempt < retries - 1:
+                wait_time = backoff ** attempt
+                logging.warning(f"Error: {e}. Retrying in {wait_time}s (Attempt {attempt+1}/{retries})")
+                await asyncio.sleep(wait_time)
+            else:
+                logging.error(f"Failed after {retries} attempts for text: '{text[:50]}...' Error: {e}")
+                return ""  # Return empty or handle differently
+
+async def process_batch_async(tax_type, user_texts, optimal_batch_size):
+    prompt = PROMPTS.get(tax_type, "Odpowiedz na pytania dotyczące podatków: ")
+    
+    async with aiohttp.ClientSession() as session:
+        tasks = [query_ollama(session, prompt, t) for t in user_texts]
+        responses = await asyncio.gather(*tasks)
+    
+    # Vectorize in batches
+    embeddings = embedder.encode(responses, batch_size=optimal_batch_size, convert_to_numpy=True)
+    
+    # Bulk insert
+    data = [(tax_type, ut, r, emb.tolist()) for ut, r, emb in zip(user_texts, responses, embeddings)]
+    cursor.executemany(
+        "INSERT INTO tax_responses (tax_type, user_text, response, embedding) VALUES (%s, %s, %s, %s)",
+        data
+    )
+    conn.commit()
+
+async def process_large_dataset_async(tax_type, all_texts, batch_size=500):
+    timings = {}
+    start_total = time.perf_counter()
+    
+    optimal_batch_size = find_max_batch_size(embedder, all_texts[:100])
+    
+    for i in range(0, len(all_texts), batch_size):
+        batch = all_texts[i:i+batch_size]
+        start = time.perf_counter()
+        logging.info(f"Processing batch {i//batch_size + 1} with {len(batch)} items...")
+        await process_batch_async(tax_type, batch, optimal_batch_size)
+        timings[f"batch_{i//batch_size}"] = time.perf_counter() - start
+    
+    timings["total"] = time.perf_counter() - start_total
+    return timings
+
+Pokaż więcej wierszy
+✅ What’s New?
+Logging for each attempt:
+INFO for success
+WARNING for retry attempts
+ERROR for final failure
+Shows which text failed and retry wait time.
+Keeps pipeline async and scalable.
+✅ Next Steps
+Add structured logs to a file for audit.
+Use asyncpg for fully async DB inserts.
+Implement rate limiting if Ollama struggles under heavy load.
+👉 Do you want me to upgrade this pipeline with asyncpg and COPY-based bulk insert for maximum speed? Or add structured JSON logging for better observability (e.g., for ELK or Grafana)?
+
+
+
+
+
+
+
+
+You said:
+
+Use asyncpg with COPY and logging
+Copilot said:
+Copilot
+Here’s the final optimized pipeline with:
+
+✔ Async Ollama calls
+✔ Retry logic with structured logging
+✔ Fully async Postgres inserts using asyncpg
+✔ COPY-based bulk insert for maximum speed
+
+✅ Full Implementation
+
+
+
+Python
+import asyncio
+import aiohttp
+import asyncpg
+import logging
+import time
+import torch
+from sentence_transformers import SentenceTransformer
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler()]
+)
+
+# Initialize SentenceTransformer on GPU
+embedder = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device="cuda")
+embedder.model.half()  # FP16 for speed
+
+PROMPTS = {
+    "VAT": "Odpowiedz na pytania dotyczące podatku VAT: ",
+    "CIT": "Odpowiedz na pytania dotyczące podatku CIT: ",
+    "PIT": "Odpowiedz na pytania dotyczące podatku PIT: "
+}
+
+OLLAMA_URL = "http://localhost:11434/api/generate"
+
+async def query_ollama(session, prompt, text, retries=3, backoff=2):
+    payload = {"model": "bielik", "prompt": prompt + text}
+    for attempt in range(retries):
+        try:
+            logging.info(f"Sending request for text: '{text[:50]}...' (Attempt {attempt+1})")
+            async with session.post(OLLAMA_URL, json=payload, timeout=60) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    logging.info(f"Success for text: '{text[:50]}...'")
+                    return result.get("response", "")
+                else:
+                    raise Exception(f"HTTP {resp.status}")
+        except Exception as e:
+            if attempt < retries - 1:
+                wait_time = backoff ** attempt
+                logging.warning(f"Error: {e}. Retrying in {wait_time}s (Attempt {attempt+1}/{retries})")
+                await asyncio.sleep(wait_time)
+            else:
+                logging.error(f"Failed after {retries} attempts for text: '{text[:50]}...' Error: {e}")
+                return ""  # Return empty or handle differently
+
+async def insert_batch_asyncpg(conn, data):
+    # Prepare COPY data as CSV lines
+    copy_data = "\n".join(
+        f"{tax_type}\t{user_text}\t{response}\t{embedding}"
+        for tax_type, user_text, response, embedding in data
+    )
+    await conn.copy_to_table("tax_responses", source=copy_data, format="csv", delimiter="\t")
+
+async def process_batch_async(tax_type, user_texts, optimal_batch_size, conn):
+    prompt = PROMPTS.get(tax_type, "Odpowiedz na pytania dotyczące podatków: ")
+    
+    async with aiohttp.ClientSession() as session:
+        tasks = [query_ollama(session, prompt, t) for t in user_texts]
+        responses = await asyncio.gather(*tasks)
+    
+    # Vectorize in batches
+    embeddings = embedder.encode(responses, batch_size=optimal_batch_size, convert_to_numpy=True)
+    
+    # Prepare data for COPY
+    data = [(tax_type, ut, r, emb.tolist()) for ut, r, emb in zip(user_texts, responses, embeddings)]
+    await insert_batch_asyncpg(conn, data)
+
+async def process_large_dataset_async(tax_type, all_texts, batch_size=500):
+    timings = {}
+    start_total = time.perf_counter()
+    
+    # Detect optimal batch size once
+    optimal_batch_size = find_max_batch_size(embedder, all_texts[:100])
+    
+    # Connect to Postgres using asyncpg
+    conn = await asyncpg.connect("postgresql://myuser:mypass@localhost/mydb")
+    
+    for i in range(0, len(all_texts), batch_size):
+        batch = all_texts[i:i+batch_size]
+        start = time.perf_counter()
+        logging.info(f"Processing batch {i//batch_size + 1} with {len(batch)} items...")
+        await process_batch_async(tax_type, batch, optimal_batch_size, conn)
+        timings[f"batch_{i//batch_size}"] = time.perf_counter() - start
+    
+    await conn.close()
+    timings["total"] = time.perf_counter() - start_total
+    return timings
+
+# Run the async pipeline
+texts = [f"Jakie są stawki VAT dla produktu {i}?" for i in range(5000)]
+asyncio.run(process_large_dataset_async("VAT", texts))
+
+Pokaż więcej wierszy
+✅ Why This Is Ultra-Fast
+Async Ollama calls → hundreds of concurrent requests.
+GPU batch encoding → maximum throughput for embeddings.
+COPY-based bulk insert via asyncpg → fastest way to load data into Postgres.
+Structured logging → clear visibility of retries and batch progress.
+✅ Next-Level Enhancements
+Add structured JSON logs for observability (ELK/Grafana).
+Implement rate limiting for Ollama if CPU-bound.
+Use chunked COPY for very large datasets (>1M rows).
+Add error handling for DB failures with retry.
+👉 Do you want me to add JSON logging for observability and rate limiting for Ollama requests next? Or provide a Dockerized setup for this entire pipeline (Ollama + Postgres + Python)?
+
+
+
+
+
+
+
+
+You said:
+
+Provide Docker setup for pipeline
+Copilot said:
+Copilot
+Here’s a Dockerized setup for your entire pipeline: Ollama (with Bielik model), Postgres (with pgvector), and Python app running the async pipeline.
+
+✅ 1. Project Structure
+tax-pipeline/
+├── docker-compose.yml
+├── Dockerfile
+├── requirements.txt
+└── app.py
+✅ 2. docker-compose.yml
+This will orchestrate Ollama, Postgres, and your Python service.
+
+
+
+
+YAML
+version: "3.9"
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypass
+      POSTGRES_DB: mydb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  python-app:
+    build: .
+    container_name: tax-pipeline
+    depends_on:
+      - ollama
+      - postgres
+    environment:
+      DATABASE_URL: postgresql://myuser:mypass@postgres:5432/mydb
+    volumes:
+      - .:/app
+    command: ["python", "app.py"]
+
+volumes:
+  ollama-data:
+  pgdata:
+
+Pokaż więcej wierszy
+✅ 3. Dockerfile
+Builds your Python environment with GPU support (if available).
+
+
+
+
+Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+CMD ["python", "app.py"]
+
+Pokaż więcej wierszy
+✅ 4. requirements.txt
+Include all necessary libraries:
+
+aiohttp
+asyncpg
+sentence-transformers
+torch
+langchain
+psycopg[binary]
+(If you want GPU support, ensure you install torch with CUDA in the container or use NVIDIA runtime.)
+
+✅ 5. app.py
+Your async pipeline code from previous steps (with Ollama + asyncpg + COPY + logging).
+
+✅ 6. Initialize Postgres with pgvector
+Add this to your Python app or run manually:
+
+
+
+
+SQL
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE TABLE tax_responses (
+    id SERIAL PRIMARY KEY,
+    tax_type TEXT,
+    user_text TEXT,
+    response TEXT,
+    embedding VECTOR(384)
+);
+✅ 7. Run Everything
+
+
+
+Shell
+docker-compose up --build
+✅ Optional Enhancements
+GPU for Ollama: Add runtime: nvidia and NVIDIA_VISIBLE_DEVICES=all in docker-compose.yml.
+GPU for Python: Use nvidia/cuda base image and install PyTorch with CUDA.
+Logging to file: Mount a volume for logs and configure logging.FileHandler.
+👉 Do you want me to provide the full app.py code ready for Docker, including:
+
+Async Ollama calls
+Retry logic
+Logging
+Asyncpg COPY insert
+Dynamic batch size detection
+all in one file? Or should I split it into modular files (utils, db, llm) for better maintainability?
+
+
+
+
+
+
+
+You said:
+
+Add GPU support in Dockerfile
+Copilot said:
+Copilot
+To add GPU support in your Dockerfile for the Python pipeline, you need to:
+
+✅ 1. Use NVIDIA CUDA Base Image
+Start from an image that supports CUDA and PyTorch GPU acceleration:
+
+
+
+
+Dockerfile
+FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+CMD ["python3", "app.py"]
+
+Pokaż więcej wierszy
+✅ 2. Enable NVIDIA Runtime in docker-compose.yml
+Add GPU support for the Python container:
+
+
+
+
+YAML
+services:
+  python-app:
+    build: .
+    container_name: tax-pipeline
+    depends_on:
+      - ollama
+      - postgres
+    environment:
+      DATABASE_URL: postgresql://myuser:mypass@postgres:5432/mydb
+    volumes:
+      - .:/app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: ["python3", "app.py"]
+
+Pokaż więcej wierszy
+✅ 3. Install PyTorch with CUDA in Container
+Update requirements.txt for GPU-enabled PyTorch:
+
+aiohttp
+asyncpg
+sentence-transformers
+torch==2.3.0+cu121
+langchain
+psycopg[binary]
+(Replace cu121 with your CUDA version.)
+
+✅ 4. Run with NVIDIA Runtime
+Make sure you have NVIDIA Container Toolkit installed:
+
+
+
+
+Shell
+sudo apt-get install -y nvidia-container-toolkit
+sudo systemctl restart docker
+
+Then start:
+
+
+
+
+Shell
+docker-compose up --build
+✅ 5. Verify GPU Access
+Inside the container:
+
+
+
+
+Shell
+python3 -c "import torch; print(torch.cuda.is_available())"
+Should return True.
+
+👉 Do you want me to give you the full app.py code ready for this GPU-enabled Docker setup, including:
+
+Async Ollama calls with retry + logging
+Dynamic batch size detection
+Asyncpg COPY inserts
+GPU SentenceTransformers with FP16
+all in one file? Or should I split it into modular files (utils, db, llm) for maintainability?
+
+
+
+
+
+
+
+You said:
+
+Give full app.py for GPU setup
+Copilot said:
+Copilot
+Here’s the full app.py code optimized for GPU-enabled Docker setup, including:
+
+✔ Async Ollama calls with retry logic
+✔ Structured logging
+✔ Dynamic batch size detection
+✔ GPU SentenceTransformers with FP16
+✔ Asyncpg with COPY-based bulk insert for speed
+
+✅ app.py
+
+
+
+Python
+import asyncio
+import aiohttp
+import asyncpg
+import logging
+import time
+import torch
+from sentence_transformers import SentenceTransformer
+
+# ---------------- Logging Configuration ----------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler()]
+)
+
+# ---------------- Model Initialization ----------------
+embedder = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device="cuda")
+embedder.model.half()  # FP16 for speed
+
+PROMPTS = {
+    "VAT": "Odpowiedz na pytania dotyczące podatku VAT: ",
+    "CIT": "Odpowiedz na pytania dotyczące podatku CIT: ",
+    "PIT": "Odpowiedz na pytania dotyczące podatku PIT: "
+}
+
+OLLAMA_URL = "http://ollama:11434/api/generate"  # Use service name from docker-compose
+
+# ---------------- Ollama Async Query with Retry ----------------
+async def query_ollama(session, prompt, text, retries=3, backoff=2):
+    payload = {"model": "bielik", "prompt": prompt + text}
+    for attempt in range(retries):
+        try:
+            logging.info(f"Sending request for text: '{text[:50]}...' (Attempt {attempt+1})")
+            async with session.post(OLLAMA_URL, json=payload, timeout=60) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    logging.info(f"Success for text: '{text[:50]}...'")
+                    return result.get("response", "")
+                else:
+                    raise Exception(f"HTTP {resp.status}")
+        except Exception as e:
+            if attempt < retries - 1:
+                wait_time = backoff ** attempt
+                logging.warning(f"Error: {e}. Retrying in {wait_time}s (Attempt {attempt+1}/{retries})")
+                await asyncio.sleep(wait_time)
+            else:
+                logging.error(f"Failed after {retries} attempts for text: '{text[:50]}...' Error: {e}")
+                return ""
+
+# ---------------- Dynamic Batch Size Detection ----------------
+def find_max_batch_size(model, sample_texts, start=16, max_try=512):
+    batch_size = start
+    last_success = start
+    while batch_size <= max_try:
+        try:
+            _ = model.encode(sample_texts[:batch_size], batch_size=batch_size)
+            last_success = batch_size
+            batch_size *= 2
+        except RuntimeError as e:
+            if "CUDA out of memory" in str(e):
+                torch.cuda.empty_cache()
+                break
+            else:
+                raise e
+    logging.info(f"Optimal batch size detected: {last_success}")
+    return last_success
+
+# ---------------- Async COPY Insert ----------------
+async def insert_batch_asyncpg(conn, data):
+    # Prepare COPY data as tab-delimited lines
+    copy_data = "\n".join(
+        f"{tax_type}\t{user_text}\t{response}\t{embedding}"
+        for tax_type, user_text, response, embedding in data
+    )
+    await conn.copy_to_table("tax_responses", source=copy_data, format="csv", delimiter="\t")
+
+# ---------------- Process Batch ----------------
+async def process_batch_async(tax_type, user_texts, optimal_batch_size, conn):
+    prompt = PROMPTS.get(tax_type, "Odpowiedz na pytania dotyczące podatków: ")
+    
+    async with aiohttp.ClientSession() as session:
+        tasks = [query_ollama(session, prompt, t) for t in user_texts]
+        responses = await asyncio.gather(*tasks)
+    
+    # Vectorize responses
+    embeddings = embedder.encode(responses, batch_size=optimal_batch_size, convert_to_numpy=True)
+    
+    # Prepare data for COPY
+    data = [(tax_type, ut, r, emb.tolist()) for ut, r, emb in zip(user_texts, responses, embeddings)]
+    await insert_batch_asyncpg(conn, data)
+
+# ---------------- Main Pipeline ----------------
+async def process_large_dataset_async(tax_type, all_texts, batch_size=500):
+    timings = {}
+    start_total = time.perf_counter()
+    
+    # Detect optimal batch size
+    optimal_batch_size = find_max_batch_size(embedder, all_texts[:100])
+    
+    # Connect to Postgres
+    conn = await asyncpg.connect("postgresql://myuser:mypass@postgres:5432/mydb")
+    
+    for i in range(0, len(all_texts), batch_size):
+        batch = all_texts[i:i+batch_size]
+        start = time.perf_counter()
+        logging.info(f"Processing batch {i//batch_size + 1} with {len(batch)} items...")
+        await process_batch_async(tax_type, batch, optimal_batch_size, conn)
+        timings[f"batch_{i//batch_size}"] = time.perf_counter() - start
+    
+    await conn.close()
+    timings["total"] = time.perf_counter() - start_total
+    logging.info(f"Processing completed in {timings['total']:.2f}s")
+    return timings
+
+# ---------------- Entry Point ----------------
+if __name__ == "__main__":
+    texts = [f"Jakie są stawki VAT dla produktu {i}?" for i in range(5000)]
+    asyncio.run(process_large_dataset_async("VAT", texts))
+
+Pokaż więcej wierszy
+✅ Key Features
+GPU acceleration with FP16 for SentenceTransformers.
+Dynamic batch size detection for max GPU utilization.
+Async Ollama calls with retry and structured logging.
+Asyncpg COPY insert for ultra-fast bulk DB writes.
+Docker-ready (uses ollama and postgres service names from docker-compose).
+✅ Next Steps
+Add pgvector extension in Postgres init script.
+Mount persistent volumes for Ollama models and Postgres data.
+Configure logging to file or JSON for observability.
+👉 Do you want me to also provide the Postgres initialization script and a ready-to-run docker-compose.yml with GPU support so you can launch everything with one command? Or add JSON logging for ELK/Grafana integration?
+
+
+
+
+
+
+
+
+You said:
+
+Provide Postgres init script
+Copilot said:
+Copilot
+Here’s a Postgres initialization script that sets up everything you need for your pipeline, including the pgvector extension and the table schema for storing embeddings:
+
+✅ init.sql
+
+
+
+SQL
+-- Enable pgvector extension
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Create table for tax responses
+CREATE TABLE IF NOT EXISTS tax_responses (
+    id SERIAL PRIMARY KEY,
+    tax_type TEXT NOT NULL,
+    user_text TEXT NOT NULL,
+    response TEXT NOT NULL,
+    embedding VECTOR(384) -- Match SentenceTransformer dimension
+);
+
+-- Optional: Create an index for fast similarity search
+CREATE INDEX IF NOT EXISTS idx_embedding ON tax_responses USING ivfflat (embedding vector_cosine_ops)
+WITH (lists = 100);
+
+-- Optional: Create index on tax_type for filtering
+CREATE INDEX IF NOT EXISTS idx_tax_type ON tax_responses (tax_type);
+
+Pokaż więcej wierszy
+✅ How to Use in Docker
+Add this script to your project and mount it in docker-compose.yml so Postgres runs it on startup:
+
+
+
+
+YAML
+postgres:
+  image: postgres:16
+  container_name: postgres
+  environment:
+    POSTGRES_USER: myuser
+    POSTGRES_PASSWORD: mypass
+    POSTGRES_DB: mydb
+  ports:
+    - "5432:5432"
+  volumes:
+    - pgdata:/var/lib/postgresql/data
+    - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+  restart: unless-stopped
+Postgres automatically executes any .sql files in /docker-entrypoint-initdb.d/ during initialization.
+
+✅ Why This Setup?
+pgvector extension → enables vector similarity search.
+IVFFlat index → speeds up nearest neighbor queries for embeddings.
+Indexes on tax_type → efficient filtering by tax category.
+👉 Do you want me to also provide the full docker-compose.yml with GPU support for Ollama and Python, so you can run everything with one command? Or add an example query for similarity search using pgvector?
+
+
+
+
+
+
+
+
+You said:
+
+Add example query using pgvector
+Copilot said:
+Copilot
+Here’s an example of how to run a similarity search using pgvector in Postgres after you’ve inserted embeddings:
+
+✅ Example Query: Find Closest Matches by Cosine Similarity
+Assume:
+
+Your table is tax_responses
+Column embedding is VECTOR(384)
+You have a query embedding from SentenceTransformers
+1. Compute Query Embedding in Python
+
+
+
+Python
+query_text = "Jakie są stawki VAT na książki?"
+query_embedding = embedder.encode(query_text).tolist()
+
+2. SQL Query for Similarity Search
+
+
+
+SQL
+SELECT id, tax_type, user_text, response,
+       embedding <=> '[0.123, 0.456, ...]' AS distance
+FROM tax_responses
+ORDER BY embedding <=> '[0.123, 0.456, ...]'
+LIMIT 5;
+<=> is the cosine distance operator in pgvector.
+Replace [0.123, 0.456, ...] with your embedding array.
+3. Python Integration
+
+
+
+Python
+similarity_query = """
+SELECT id, tax_type, user_text, response,
+       embedding <=> %s AS distance
+FROM tax_responses
+ORDER BY embedding <=> %s
+LIMIT 5;
+"""
+
+cursor.execute(similarity_query, (query_embedding, query_embedding))
+results = cursor.fetchall()
+
+for row in results:
+    print(f"ID: {row[0]}, Distance: {row[4]}, Response: {row[3]}")
+✅ Why This Works
+pgvector supports cosine, L2, and inner product similarity.
+<=> = cosine distance (lower = more similar).
+Use IVFFlat index for speed on large datasets.
+👉 Do you want me to add this similarity search as a function in your app.py pipeline, so you can query embeddings after insertion? Or extend it to return top-N matches with a threshold and JSON output for API use?
+
+
+
+
+
+
+
+
+You said:
+
+Add similarity search to app.py
+Copilot said:
+Copilot
+Here’s the updated app.py with a similarity search function added to your GPU-enabled pipeline:
+
+✅ Full app.py with Similarity Search
+
+
+
+Python
+import asyncio
+import aiohttp
+import asyncpg
+import logging
+import time
+import torch
+from sentence_transformers import SentenceTransformer
+
+# ---------------- Logging Configuration ----------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler()]
+)
+
+# ---------------- Model Initialization ----------------
+embedder = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device="cuda")
+embedder.model.half()  # FP16 for speed
+
+PROMPTS = {
+    "VAT": "Odpowiedz na pytania dotyczące podatku VAT: ",
+    "CIT": "Odpowiedz na pytania dotyczące podatku CIT: ",
+    "PIT": "Odpowiedz na pytania dotyczące podatku PIT: "
+}
+
+OLLAMA_URL = "http://ollama:11434/api/generate"  # Docker service name
+
+# ---------------- Ollama Async Query with Retry ----------------
+async def query_ollama(session, prompt, text, retries=3, backoff=2):
+    payload = {"model": "bielik", "prompt": prompt + text}
+    for attempt in range(retries):
+        try:
+            logging.info(f"Sending request for text: '{text[:50]}...' (Attempt {attempt+1})")
+            async with session.post(OLLAMA_URL, json=payload, timeout=60) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    logging.info(f"Success for text: '{text[:50]}...'")
+                    return result.get("response", "")
+                else:
+                    raise Exception(f"HTTP {resp.status}")
+        except Exception as e:
+            if attempt < retries - 1:
+                wait_time = backoff ** attempt
+                logging.warning(f"Error: {e}. Retrying in {wait_time}s (Attempt {attempt+1}/{retries})")
+                await asyncio.sleep(wait_time)
+            else:
+                logging.error(f"Failed after {retries} attempts for text: '{text[:50]}...' Error: {e}")
+                return ""
+
+# ---------------- Dynamic Batch Size Detection ----------------
+def find_max_batch_size(model, sample_texts, start=16, max_try=512):
+    batch_size = start
+    last_success = start
+    while batch_size <= max_try:
+        try:
+            _ = model.encode(sample_texts[:batch_size], batch_size=batch_size)
+            last_success = batch_size
+            batch_size *= 2
+        except RuntimeError as e:
+            if "CUDA out of memory" in str(e):
+                torch.cuda.empty_cache()
+                break
+            else:
+                raise e
+    logging.info(f"Optimal batch size detected: {last_success}")
+    return last_success
+
+# ---------------- Async COPY Insert ----------------
+async def insert_batch_asyncpg(conn, data):
+    copy_data = "\n".join(
+        f"{tax_type}\t{user_text}\t{response}\t{embedding}"
+        for tax_type, user_text, response, embedding in data
+    )
+    await conn.copy_to_table("tax_responses", source=copy_data, format="csv", delimiter="\t")
+
+# ---------------- Process Batch ----------------
+async def process_batch_async(tax_type, user_texts, optimal_batch_size, conn):
+    prompt = PROMPTS.get(tax_type, "Odpowiedz na pytania dotyczące podatków: ")
+    
+    async with aiohttp.ClientSession() as session:
+        tasks = [query_ollama(session, prompt, t) for t in user_texts]
+        responses = await asyncio.gather(*tasks)
+    
+    embeddings = embedder.encode(responses, batch_size=optimal_batch_size, convert_to_numpy=True)
+    
+    data = [(tax_type, ut, r, emb.tolist()) for ut, r, emb in zip(user_texts, responses, embeddings)]
+    await insert_batch_asyncpg(conn, data)
+
+# ---------------- Main Pipeline ----------------
+async def process_large_dataset_async(tax_type, all_texts, batch_size=500):
+    timings = {}
+    start_total = time.perf_counter()
+    
+    optimal_batch_size = find_max_batch_size(embedder, all_texts[:100])
+    conn = await asyncpg.connect("postgresql://myuser:mypass@postgres:5432/mydb")
+    
+    for i in range(0, len(all_texts), batch_size):
+        batch = all_texts[i:i+batch_size]
+        start = time.perf_counter()
+        logging.info(f"Processing batch {i//batch_size + 1} with {len(batch)} items...")
+        await process_batch_async(tax_type, batch, optimal_batch_size, conn)
+        timings[f"batch_{i//batch_size}"] = time.perf_counter() - start
+    
+    await conn.close()
+    timings["total"] = time.perf_counter() - start_total
+    logging.info(f"Processing completed in {timings['total']:.2f}s")
+    return timings
+
+# ---------------- Similarity Search ----------------
+async def similarity_search(query_text, top_k=5):
+    conn = await asyncpg.connect("postgresql://myuser:mypass@postgres:5432/mydb")
+    
+    # Compute embedding for query
+    query_embedding = embedder.encode(query_text).tolist()
+    
+    sql = """
+    SELECT id, tax_type, user_text, response, embedding <=> $1 AS distance
+    FROM tax_responses
+    ORDER BY embedding <=> $1
+    LIMIT $2;
+    """
+    
+    rows = await conn.fetch(sql, query_embedding, top_k)
+    await conn.close()
+    
+    results = [{"id": r["id"], "tax_type": r["tax_type"], "user_text": r["user_text"],
+                "response": r["response"], "distance": r["distance"]} for r in rows]
+    
+    logging.info(f"Similarity search completed for query: '{query_text}'")
+    return results
+
+# ---------------- Entry Point ----------------
+if __name__ == "__main__":
+    texts = [f"Jakie są stawki VAT dla produktu {i}?" for i in range(5000)]
+    asyncio.run(process_large_dataset_async("VAT", texts))
+    
+    # Example similarity search
+    query = "Jakie są stawki VAT na książki?"
+    results = asyncio.run(similarity_search(query))
+    print("Top matches:", results)
+
+Pokaż więcej wierszy
+✅ What’s New?
+similarity_search():
+Computes embedding for query text.
+Executes pgvector similarity search using <=> (cosine distance).
+Returns top-N matches as a list of dictionaries.
+Integrated with asyncpg for non-blocking DB queries.
+Logging for search completion.
+✅ Example Output
+
+
+
+JSON
+[
+  {
+    "id": 123,
+    "tax_type": "VAT",
+    "user_text": "Jakie są stawki VAT na książki?",
+    "response": "Stawka VAT na książki wynosi 5%.",
+    "distance": 0.02
+  },
+  ...
+]
+👉 Do you want me to add a REST API layer (FastAPI) on top of this pipeline so you can:
+
+Trigger processing batches via an endpoint
+Run similarity search via an endpoint
+and deploy it in the same Docker setup? Or should I add JSON logging for observability (ELK/Grafana) first?
+
+
+
+
+
+
+
+You said:
+
+Add FastAPI endpoints to app.py
+Copilot said:
+Copilot
+Here’s the updated app.py with FastAPI endpoints added for:
+
+✔ Triggering batch processing
+✔ Running similarity search
+✔ Returning JSON responses
+
+✅ Full app.py with FastAPI
+
+
+
+Python
+import asyncio
+import aiohttp
+import asyncpg
+import logging
+import time
+import torch
+from fastapi import FastAPI
+from pydantic import BaseModel
+from sentence_transformers import SentenceTransformer
+import uvicorn
+
+# ---------------- Logging Configuration ----------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler()]
+)
+
+# ---------------- FastAPI App ----------------
+app = FastAPI(title="Tax AI Pipeline", version="1.0")
+
+# ---------------- Model Initialization ----------------
+embedder = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device="cuda")
+embedder.model.half()  # FP16 for speed
+
+PROMPTS = {
+    "VAT": "Odpowiedz na pytania dotyczące podatku VAT: ",
+    "CIT": "Odpowiedz na pytania dotyczące podatku CIT: ",
+    "PIT": "Odpowiedz na pytania dotyczące podatku PIT: "
+}
+
+OLLAMA_URL = "http://ollama:11434/api/generate"  # Docker service name
+
+# ---------------- Request Models ----------------
+class BatchRequest(BaseModel):
+    tax_type: str
+    texts: list[str]
+
+class SearchRequest(BaseModel):
+    query: str
+    top_k: int = 5
+
+# ---------------- Ollama Async Query with Retry ----------------
+async def query_ollama(session, prompt, text, retries=3, backoff=2):
+    payload = {"model": "bielik", "prompt": prompt + text}
+    for attempt in range(retries):
+        try:
+            async with session.post(OLLAMA_URL, json=payload, timeout=60) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    return result.get("response", "")
+                else:
+                    raise Exception(f"HTTP {resp.status}")
+        except Exception as e:
+            if attempt < retries - 1:
+                await asyncio.sleep(backoff ** attempt)
+            else:
+                logging.error(f"Failed after {retries} attempts for text: '{text[:50]}...' Error: {e}")
+                return ""
+
+# ---------------- Dynamic Batch Size Detection ----------------
+def find_max_batch_size(model, sample_texts, start=16, max_try=512):
+    batch_size = start
+    last_success = start
+    while batch_size <= max_try:
+        try:
+            _ = model.encode(sample_texts[:batch_size], batch_size=batch_size)
+            last_success = batch_size
+            batch_size *= 2
+        except RuntimeError as e:
+            if "CUDA out of memory" in str(e):
+                torch.cuda.empty_cache()
+                break
+            else:
+                raise e
+    return last_success
+
+# ---------------- Async COPY Insert ----------------
+async def insert_batch_asyncpg(conn, data):
+    copy_data = "\n".join(
+        f"{tax_type}\t{user_text}\t{response}\t{embedding}"
+        for tax_type, user_text, response, embedding in data
+    )
+    await conn.copy_to_table("tax_responses", source=copy_data, format="csv", delimiter="\t")
+
+# ---------------- Process Batch ----------------
+async def process_batch_async(tax_type, user_texts, optimal_batch_size, conn):
+    prompt = PROMPTS.get(tax_type, "Odpowiedz na pytania dotyczące podatków: ")
+    async with aiohttp.ClientSession() as session:
+        tasks = [query_ollama(session, prompt, t) for t in user_texts]
+        responses = await asyncio.gather(*tasks)
+    embeddings = embedder.encode(responses, batch_size=optimal_batch_size, convert_to_numpy=True)
+    data = [(tax_type, ut, r, emb.tolist()) for ut, r, emb in zip(user_texts, responses, embeddings)]
+    await insert_batch_asyncpg(conn, data)
+
+# ---------------- Similarity Search ----------------
+async def similarity_search(query_text, top_k=5):
+    conn = await asyncpg.connect("postgresql://myuser:mypass@postgres:5432/mydb")
+    query_embedding = embedder.encode(query_text).tolist()
+    sql = """
+    SELECT id, tax_type, user_text, response, embedding <=> $1 AS distance
+    FROM tax_responses
+    ORDER BY embedding <=> $1
+    LIMIT $2;
+    """
+    rows = await conn.fetch(sql, query_embedding, top_k)
+    await conn.close()
+    return [{"id": r["id"], "tax_type": r["tax_type"], "user_text": r["user_text"],
+             "response": r["response"], "distance": r["distance"]} for r in rows]
+
+# ---------------- FastAPI Endpoints ----------------
+@app.post("/process_batch")
+async def process_batch_endpoint(request: BatchRequest):
+    optimal_batch_size = find_max_batch_size(embedder, request.texts[:100])
+    conn = await asyncpg.connect("postgresql://myuser:mypass@postgres:5432/mydb")
+    await process_batch_async(request.tax_type, request.texts, optimal_batch_size, conn)
+    await conn.close()
+    return {"status": "success", "processed": len(request.texts)}
+
+@app.post("/similarity_search")
+async def similarity_search_endpoint(request: SearchRequest):
+    results = await similarity_search(request.query, request.top_k)
+    return {"query": request.query, "results": results}
+
+# ---------------- Run Server ----------------
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+Pokaż więcej wierszy
+✅ Endpoints
+POST /process_batch
+
+
+
+
+JSON
+{
+  "tax_type": "VAT",
+  "texts": ["Jakie są stawki VAT na książki?", "Czy VAT na usługi IT wynosi 23%?"]
+}
+Response:
+
+
+
+
+JSON
+{"status": "success", "processed": 2}
+POST /similarity_search
+
+
+
+
+JSON
+{
+  "query": "Jakie są stawki VAT na książki?",
+  "top_k": 5
+}
+Response:
+
+
+
+
+JSON
+{
+  "query": "Jakie są stawki VAT na książki?",
+  "results": [
+    {"id": 1, "tax_type": "VAT", "user_text": "...", "response": "...", "distance": 0.02}
+  ]
+}
+✅ Next Steps
+Add Dockerfile and docker-compose to run FastAPI + Ollama + Postgres together.
+Add pgvector index for fast similarity search (already in init.sql).
+Optional: Add JWT auth for secure API.
+👉 Do you want me to provide the complete docker-compose.yml with GPU support for Ollama and Python, plus Postgres init script, so you can run everything with one command? Or add JSON logging for observability (ELK/Grafana)?
+
+
+
+
+
+
+
+
+You said:
+
+Add Dockerfile for this setup
+Copilot said:
+Copilot
+Here’s the Dockerfile for your FastAPI + GPU pipeline:
+
+✅ Dockerfile (GPU-enabled for FastAPI + SentenceTransformers)
+
+
+
+Dockerfile
+# Use NVIDIA CUDA runtime for GPU support
+FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Expose FastAPI port
+EXPOSE 8000
+
+# Run FastAPI app
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+
+Pokaż więcej wierszy
+✅ requirements.txt
+Include GPU-enabled PyTorch and all dependencies:
+
+fastapi
+uvicorn
+aiohttp
+asyncpg
+sentence-transformers
+torch==2.3.0+cu121
+langchain
+psycopg[binary]
+(Replace cu121 with your CUDA version if different.)
+
+✅ Add to docker-compose.yml
+Here’s the Python service with GPU support:
+
+
+
+
+YAML
+services:
+  python-app:
+    build: .
+    container_name: tax-pipeline
+    depends_on:
+      - ollama
+      - postgres
+    environment:
+      DATABASE_URL: postgresql://myuser:mypass@postgres:5432/mydb
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+Pokaż więcej wierszy
+✅ Verify GPU Access
+Inside the container:
+
+
+
+
+Shell
+python3 -c "import torch; print(torch.cuda.is_available())"
+Should return True.
+
+✅ Next Steps
+Add Postgres init script (init.sql) to enable pgvector and create the table.
+Add Ollama service in docker-compose.yml with GPU support.
+Mount volumes for persistent data (Postgres + Ollama models).
+👉 Do you want me to give you the complete docker-compose.yml with Ollama (GPU), Postgres (pgvector), and FastAPI service, so you can run everything with one command? Or add JSON logging for observability (ELK/Grafana)?
+
+
+
+
+
+
+
+
+You said:
+
+Include Ollama GPU setup in Docker
+Copilot said:
+Copilot
+Here’s the complete Docker setup including Ollama with GPU support, Postgres with pgvector, and your FastAPI app:
+
+✅ 1. docker-compose.yml
+
+
+
+YAML
+version: "3.9"
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypass
+      POSTGRES_DB: mydb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+
+  python-app:
+    build: .
+    container_name: tax-pipeline
+    depends_on:
+      - ollama
+      - postgres
+    environment:
+      DATABASE_URL: postgresql://myuser:mypass@postgres:5432/mydb
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+
+volumes:
+  ollama-data:
+  pgdata:
+
+Pokaż więcej wierszy
+✅ 2. Dockerfile (GPU-enabled for FastAPI)
+
+
+
+Dockerfile
+FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8000
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+
+Pokaż więcej wierszy
+✅ 3. requirements.txt
+fastapi
+uvicorn
+aiohttp
+asyncpg
+sentence-transformers
+torch==2.3.0+cu121
+langchain
+psycopg[binary]
+✅ 4. init.sql (Postgres Initialization)
+
+
+
+SQL
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE IF NOT EXISTS tax_responses (
+    id SERIAL PRIMARY KEY,
+    tax_type TEXT NOT NULL,
+    user_text TEXT NOT NULL,
+    response TEXT NOT NULL,
+    embedding VECTOR(384)
+);
+
+CREATE INDEX IF NOT EXISTS idx_embedding ON tax_responses USING ivfflat (embedding vector_cosine_ops)
+WITH (lists = 100);
+✅ 5. Run Everything
+
+
+
+Shell
+docker-compose up --build
+✅ Verify GPU Access
+Inside Python container:
+
+
+
+
+Shell
+python3 -c "import torch; print(torch.cuda.is_available())"
+Should return True.
+
+✅ Next Steps
+Pull Bielik model into Ollama container:
+
+
+
+Shell
+docker exec -it ollama ollama pull bielik
+Test FastAPI endpoints:
+POST /process_batch
+POST /similarity_search
+👉 Do you want me to add a ready-to-use curl or Python client script to call these FastAPI endpoints for batch processing and similarity search? Or add JSON logging for observability (ELK/Grafana)?
+
+
+
+
+
+
+
+
+You said:
+
+Include Python client for endpoints
+Copilot said:
+Copilot
+Here’s a Python client script you can use to interact with your FastAPI endpoints for batch processing and similarity search:
+
+✅ client.py
+
+
+
+Python
+import requests
+
+BASE_URL = "http://localhost:8000"  # Change if running in Docker or remote
+
+# ---------------- Process Batch ----------------
+def process_batch(tax_type, texts):
+    url = f"{BASE_URL}/process_batch"
+    payload = {
+        "tax_type": tax_type,
+        "texts": texts
+    }
+    response = requests.post(url, json=payload)
+    print("Process Batch Response:", response.json())
+
+# ---------------- Similarity Search ----------------
+def similarity_search(query, top_k=5):
+    url = f"{BASE_URL}/similarity_search"
+    payload = {
+        "query": query,
+        "top_k": top_k
+    }
+    response = requests.post(url, json=payload)
+    print("Similarity Search Results:", response.json())
+
+if __name__ == "__main__":
+    # Example: Process a batch of texts
+    texts = [
+        "Jakie są stawki VAT na książki?",
+        "Czy VAT na usługi IT wynosi 23%?"
+    ]
+    process_batch("VAT", texts)
+
+    # Example: Similarity search
+    similarity_search("Jakie są stawki VAT na książki?", top_k=3)
+
+Pokaż więcej wierszy
+✅ How to Run
+Make sure your FastAPI app is running (via Docker or locally):
+
+
+
+Shell
+docker-compose up --build
+Run the client:
+
+
+
+Shell
+python client.py
+✅ Output Example
+Process Batch Response:
+
+
+
+
+JSON
+{"status": "success", "processed": 2}
+Similarity Search Results:
+
+
+
+
+JSON
+{
+  "query": "Jakie są stawki VAT na książki?",
+  "results": [
+    {"id": 1, "tax_type": "VAT", "user_text": "...", "response": "...", "distance": 0.02},
+    {"id": 2, "tax_type": "VAT", "user_text": "...", "response": "...", "distance": 0.05}
+  ]
+}
+👉 Do you want me to extend this client to support async requests (using httpx) for better performance, or add authentication (JWT) for secure API calls? Or should I provide a ready-to-use Dockerfile for this client so you can run it inside the same Docker network?
+
+
+
+
+
+
+
+
+
+Add async support with httpx
+
+Include JWT authentication example
+
+Wyślij wiadomość do funkcji Copilot
+

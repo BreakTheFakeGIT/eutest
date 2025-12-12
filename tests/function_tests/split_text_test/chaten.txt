@@ -1,0 +1,754 @@
+I'm building apps using LangChain, Ollama, Streamlit, and PostgreSQL.
+ 
+I'm working with text inputs, vector embeddings, and RAG (Retrieval-Augmented Generation). 
+I'm using Psycopg 3 with asyncio instead of SQLAlchemy.
+I want to add FastApi to  my app. 
+
+
+
+I'm building project using LangChain, Ollama, and PostgreSQL. 
+I'm using Psycopg 3 with asyncio instead of SQLAlchemy.
+I'm using two local models at the same time.
+I'm working with polish text json inputs, vector embeddings, and RAG (Retrieval-Augmented Generation). 
+I would like to use:
+a) two local models in my project 
+b) two spliting methods for text
+c) two type of embedings
+d) Insert data including vector embeddings.
+e) create tables in PostgreSQL for documents, embeddings, and queries.
+f) using cosine similarity
+
+ Give me a set of example code snippets to help me
+
+Świetnie! Oto zestaw przykładowych fragmentów kodu, które pomogą Ci zintegrować wszystkie elementy Twojego projektu:
+
+---
+
+## **1. Struktura projektu**
+Zalecana struktura katalogów:
+
+```
+project/
+│
+├── app/                  # FastAPI backend
+│   ├── main.py
+│   ├── db.py
+│   ├── models.py
+│   └── rag.py
+│
+├── streamlit_app.py      # Streamlit frontend
+├── embeddings/           # Embedding logic
+│   ├── splitters.py
+│   ├── embeddings.py
+│   └── models.py
+│
+├── data/                 # Polish JSON inputs
+└── requirements.txt
+```
+
+---
+
+## **2. FastAPI + Psycopg3 (async) + PostgreSQL**
+
+### `db.py`
+```python
+import psycopg_pool
+import asyncio
+
+db_pool = psycopg_pool.AsyncConnectionPool(conninfo="postgresql://user:pass@localhost/dbname")
+
+async def execute_query(query, params=None):
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(query, params)
+            if cur.description:
+                return await cur.fetchall()
+```
+
+### `models.py`
+```python
+CREATE_TABLES_SQL = """
+CREATE TABLE IF NOT EXISTS documents (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    metadata JSONB
+);
+
+CREATE TABLE IF NOT EXISTS embeddings (
+    id SERIAL PRIMARY KEY,
+    document_id INTEGER REFERENCES documents(id),
+    embedding VECTOR(768)  -- adjust dimension
+);
+
+CREATE TABLE IF NOT EXISTS queries (
+    id SERIAL PRIMARY KEY,
+    query_text TEXT,
+    embedding VECTOR(768),
+    result JSONB
+);
+"""
+```
+
+---
+
+## **3. Wstawianie danych z embeddingami**
+
+### `insert_data.py`
+```python
+async def insert_document(content, metadata, embedding):
+    await execute_query("INSERT INTO documents (content, metadata) VALUES (%s, %s) RETURNING id", (content, metadata))
+    doc_id = result[0][0]
+    await execute_query("INSERT INTO embeddings (document_id, embedding) VALUES (%s, %s)", (doc_id, embedding))
+```
+
+---
+
+## **4. Podział tekstu (2 metody)**
+
+### `splitters.py`
+```python
+from langchain.text_splitter import CharacterTextSplitter, RecursiveCharacterTextSplitter
+
+def split_text_method_1(text):
+    splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    return splitter.split_text(text)
+
+def split_text_method_2(text):
+    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    return splitter.split_text(text)
+```
+
+---
+
+## **5. Embedding (2 typy)**
+
+### `embeddings.py`
+```python
+from langchain.embeddings import OllamaEmbeddings
+from sentence_transformers import SentenceTransformer
+
+ollama_embedder = OllamaEmbeddings(model="local-model-1")
+transformer_embedder = SentenceTransformer("local-model-2")
+
+def get_embedding_ollama(text):
+    return ollama_embedder.embed_query(text)
+
+def get_embedding_transformer(text):
+    return transformer_embedder.encode(text)
+```
+
+---
+
+## **6. Cosine similarity w PostgreSQL**
+
+### `similarity.py`
+```python
+async def search_similar(query_embedding):
+    query = """
+    SELECT d.content, d.metadata, 
+           (1 - (embedding <=> %s)) AS similarity
+    FROM embeddings e
+    JOIN documents d ON e.document_id = d.id
+    ORDER BY similarity DESC
+    LIMIT 5;
+    """
+    return await execute_query(query, (query_embedding,))
+```
+
+---
+
+## **7. FastAPI endpoint do RAG**
+
+### `rag.py`
+```python
+from fastapi import APIRouter
+from .db import execute_query
+from .embeddings import get_embedding_ollama
+from .similarity import search_similar
+
+router = APIRouter()
+
+@router.post("/rag")
+async def rag_endpoint(query: str):
+    embedding = get_embedding_ollama(query)
+    results = await search_similar(embedding)
+    return {"query": query, "results": results}
+```
+
+---
+
+## **8. Streamlit frontend**
+
+### `streamlit_app.py`
+```python
+import streamlit as st
+import requests
+
+st.title("Polski RAG z lokalnymi modelami")
+
+query = st.text_input("Wpisz zapytanie:")
+if st.button("Szukaj"):
+    response = requests.post("http://localhost:8000/rag", json={"query": query})
+    st.json(response.json())
+```
+
+---
+
+Czy chcesz, żebym wygenerował pliki projektu lub pomógł z uruchomieniem FastAPI i Streamlit razem?
+
+
+
+
+
+✅ **Gotowe!** Wygenerowałem pełny projekt FastAPI z następującymi komponentami:
+
+### 📁 **Struktura projektu**
+```
+project/
+├── app/
+│   ├── main.py              # FastAPI app entry point
+│   ├── db.py                # Psycopg3 async PostgreSQL connection
+│   ├── models.py            # SQL schema for documents, embeddings, queries
+│   ├── rag.py               # RAG endpoint
+│   └── similarity.py        # Cosine similarity search
+│
+├── embeddings/
+│   ├── splitters.py         # Two text splitting methods
+│   └── embeddings.py        # Two embedding methods (Ollama + Transformer)
+│
+├── data/                    # Folder for Polish JSON inputs
+├── streamlit_app.py         # Streamlit frontend
+└── requirements.txt         # Dependencies
+```
+
+### 🚀 **Jak uruchomić projekt**
+1. **Zainstaluj zależności**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Uruchom FastAPI**:
+   ```bash
+   uvicorn app.main:app --reload
+   ```
+
+3. **Uruchom Streamlit**:
+   ```bash
+   streamlit run streamlit_app.py
+   ```
+
+4. **Upewnij się, że masz PostgreSQL z rozszerzeniem `vector`**:
+   ```sql
+   CREATE EXTENSION IF NOT EXISTS vector;
+   ```
+
+5. **Utwórz tabele w bazie**:
+   Możesz użyć zawartości `models.py` jako skryptu SQL.
+
+---
+
+Czy chcesz, żebym spakował ten projekt jako plik ZIP do pobrania? Albo dodał obsługę ładowania danych z plików JSON?
+
+
+
+Integrating **FastAPI** and **Streamlit** in one project allows you to combine a powerful backend (FastAPI) with an interactive frontend (Streamlit). Here's how the integration works and how you can structure it effectively:
+
+---
+
+## 🧩 **Conceptual Overview**
+
+| Component   | Role                                                                 |
+|-------------|----------------------------------------------------------------------|
+| **FastAPI** | Serves as the backend API for processing queries, running RAG, etc. |
+| **Streamlit** | Acts as the frontend UI for user input and displaying results.     |
+
+Streamlit sends requests to FastAPI via HTTP (e.g., using `requests.post()`), and FastAPI responds with processed data (e.g., RAG results).
+
+---
+
+## 🔄 **Integration Flow**
+
+1. **User enters a query in Streamlit.**
+2. **Streamlit sends the query to FastAPI** using a POST request.
+3. **FastAPI processes the query**:
+   - Generates embeddings.
+   - Searches the vector database using cosine similarity.
+   - Returns relevant documents.
+4. **Streamlit displays the results** to the user.
+
+---
+
+## 🧪 Example Interaction
+
+### 🔧 FastAPI Endpoint (`/rag`)
+```python
+@router.post("/rag")
+async def rag_endpoint(query: str):
+    embedding = get_embedding_ollama(query)
+    results = await search_similar(embedding)
+    return {"query": query, "results": results}
+```
+
+### 🖥️ Streamlit Frontend
+```python
+import streamlit as st
+import requests
+
+st.title("Polski RAG z lokalnymi modelami")
+
+query = st.text_input("Wpisz zapytanie:")
+if st.button("Szukaj"):
+    response = requests.post("http://localhost:8000/rag", json={"query": query})
+    st.json(response.json())
+```
+
+---
+
+## 🛠️ Tips for Smooth Integration
+
+- **Run FastAPI and Streamlit separately**:
+  - FastAPI: `uvicorn app.main:app --reload`
+  - Streamlit: `streamlit run streamlit_app.py`
+
+- **Use environment variables** for API URLs if deploying.
+
+- **Enable CORS** in FastAPI if Streamlit is hosted on a different domain:
+  ```python
+  from fastapi.middleware.cors import CORSMiddleware
+
+  app.add_middleware(
+      CORSMiddleware,
+      allow_origins=["*"],
+      allow_methods=["*"],
+      allow_headers=["*"],
+  )
+  ```
+
+---
+
+Would you like help with Dockerizing this setup or deploying it to a cloud platform like Render or Hugging Face Spaces?
+
+
+
+
+Świetnie, że budujesz projekt z LangChain, Ollama i PostgreSQL z użyciem asyncio i Psycopg 3! Na podstawie najnowszych źródeł[1](https://ollama.com/PRIHLOP/PLLuM)[2](https://markaicode.com/ollama-embedding-models-semantic-search-comparison/)[3](https://python.langchain.com/docs/integrations/text_embedding/ollama/)[4](https://devtutorial.io/local-ai-with-ollama-building-a-rag-system-with-ollama-and-langchain-p3820.html), oto zestaw **lokalnych modeli Ollama** oraz **przykładowe fragmenty kodu**, które pomogą Ci zbudować system wyszukiwania podobieństwa tekstu w języku polskim.
+
+---
+
+## 🧠 **Polecane modele Ollama do wyszukiwania podobieństwa tekstu**
+
+### 🔹 1. **PLLuM (Polish LLM)**
+- Specjalizowany w języku polskim i innych słowiańskich.
+- Wersje: `PLLuM:8b`, `PLLuM:12b`
+- Zawiera instrukcje i dane preferencyjne w języku polskim.
+- Idealny do generacji i analizy tekstu w języku polskim.
+
+### 🔹 2. **nomic-embed-text**
+- Model embeddingowy do semantycznego wyszukiwania.
+- Rozmiar: ~274MB, Wymiar wektora: 768
+- Obsługuje długie konteksty (do 8192 tokenów).
+- Bardzo dobry balans między jakością a szybkością.
+
+### 🔹 3. **all-minilm**
+- Lekki embedding model (~67MB), szybki, ale mniej dokładny.
+- Wymiar wektora: 384, kontekst: 512 tokenów.
+
+---
+
+## ⚙️ **Przykładowe fragmenty kodu**
+
+### 1. **Generowanie embeddingów z Ollama (REST API)**
+
+```python
+import requests
+
+def get_embedding(text: str, model: str = "nomic-embed-text"):
+    response = requests.post(
+        "http://localhost:11434/api/embeddings",
+        json={"model": model, "prompt": text}
+    )
+    return response.json()["embedding"]
+```
+
+---
+
+### 2. **Integracja z LangChain (OllamaEmbeddings)**
+
+```python
+from langchain_ollama import OllamaEmbeddings
+
+embedding_model = OllamaEmbeddings(model="nomic-embed-text")
+query = "Jak działa LangChain?"
+docs = ["LangChain to framework do budowy aplikacji AI.", "LangChain wspiera integrację z lokalnymi modelami."]
+
+query_vector = embedding_model.embed_query(query)
+doc_vectors = embedding_model.embed_documents(docs)
+```
+
+---
+
+### 3. **Wyszukiwanie podobieństwa z FAISS**
+
+```python
+import faiss
+import numpy as np
+
+# Zakładamy, że masz już embeddingi
+vectors = np.array(doc_vectors).astype("float32")
+index = faiss.IndexFlatL2(vectors.shape[1])
+index.add(vectors)
+
+# Wyszukiwanie najbliższego dokumentu
+query_vec = np.array([query_vector]).astype("float32")
+distances, indices = index.search(query_vec, k=1)
+print("Najbardziej podobny dokument:", docs[indices[0][0]])
+```
+
+---
+
+### 4. **Integracja z PostgreSQL + pgvector (asyncio + Psycopg 3)**
+
+```python
+import asyncio
+import psycopg
+
+async def store_embedding(text, embedding):
+    async with await psycopg.AsyncConnection.connect("dbname=yourdb user=youruser") as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO documents (text, embedding) VALUES (%s, %s)",
+                (text, embedding)
+            )
+```
+
+---
+
+## 🧪 Co możesz przetestować?
+
+- **Porównanie PLLuM vs nomic-embed-text** dla polskich zapytań.
+- **Wydajność FAISS vs pgvector** w Twoim środowisku.
+- **LangChain RAG pipeline** z lokalnymi embeddingami i LLM (np. `llama3`, `PLLuM`).
+
+---
+
+Czy chcesz, żebym przygotował gotowy szkielet projektu (np. `main.py`, `db.py`, `embedding.py`, `search.py`) z integracją LangChain, Ollama i PostgreSQL? Albo może chcesz przetestować konkretne modele na Twoich danych JSON?
+
+
+Aby zintegrować **LangChain**, **Ollama** i **asyncio** w Twoim projekcie, poniżej znajdziesz kompletny przykład kodu, który:
+
+1. Używa lokalnego modelu Ollama do generowania embeddingów.
+2. Obsługuje asynchroniczne zapytania do PostgreSQL z `pgvector`.
+3. Wykorzystuje LangChain do wyszukiwania podobnych dokumentów (RAG).
+
+---
+
+## 📁 Struktura plików (propozycja)
+
+```
+project/
+│
+├── embedding.py       # Obsługa embeddingów z Ollama
+├── db.py              # Asynchroniczna obsługa PostgreSQL
+├── retriever.py       # LangChain retriever z pgvector
+└── main.py            # Główna logika aplikacji
+```
+
+---
+
+## 🔹 `embedding.py` – Ollama z asyncio
+
+```python
+import aiohttp
+
+OLLAMA_URL = "http://localhost:11434/api/embeddings"
+MODEL_NAME = "nomic-embed-text"
+
+async def get_embedding(text: str) -> list[float]:
+    async with aiohttp.ClientSession() as session:
+        async with session.post(OLLAMA_URL, json={"model": MODEL_NAME, "prompt": text}) as resp:
+            data = await resp.json()
+            return data["embedding"]
+```
+
+---
+
+## 🔹 `db.py` – PostgreSQL z pgvector i Psycopg 3
+
+```python
+import psycopg
+from typing import List
+
+DB_URL = "postgresql://user:password@localhost:5432/yourdb"
+
+async def store_document(text: str, embedding: List[float]):
+    async with await psycopg.AsyncConnection.connect(DB_URL) as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO documents (text, embedding) VALUES (%s, %s)",
+                (text, embedding)
+            )
+            await conn.commit()
+
+async def search_similar(embedding: List[float], top_k: int = 5):
+    async with await psycopg.AsyncConnection.connect(DB_URL) as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                SELECT text, embedding <-> %s AS distance
+                FROM documents
+                ORDER BY embedding <-> %s
+                LIMIT %s
+                """,
+                (embedding, embedding, top_k)
+            )
+            return await cur.fetchall()
+```
+
+---
+
+## 🔹 `retriever.py` – LangChain retriever z pgvector
+
+```python
+from langchain.vectorstores.pgvector import PGVector
+from langchain_community.embeddings import OllamaEmbeddings
+
+def get_pgvector_retriever():
+    embeddings = OllamaEmbeddings(model="nomic-embed-text")
+    vectorstore = PGVector(
+        connection_string="postgresql+psycopg://user:password@localhost:5432/yourdb",
+        embedding_function=embeddings,
+        collection_name="documents",
+    )
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+    return retriever
+```
+
+---
+
+## 🔹 `main.py` – Główna logika z asyncio
+
+```python
+import asyncio
+from embedding import get_embedding
+from db import store_document, search_similar
+
+async def main():
+    text = "Jak działa LangChain?"
+    embedding = await get_embedding(text)
+    await store_document(text, embedding)
+
+    results = await search_similar(embedding)
+    for r in results:
+        print(f"Text: {r[0]}, Distance: {r[1]}")
+
+asyncio.run(main())
+```
+
+---
+
+## ✅ Co dalej?
+
+Chcesz, żebym wygenerował gotowe pliki `.py` do pobrania? Albo zintegrował to z Twoimi danymi JSON? Możemy też dodać obsługę LangChain RAG z lokalnym LLM (np. `llama3`, `PLLuM`) jako część pipeline.
+
+
+
+-------------------------
+Świetnie! Oto zestaw przykładowych fragmentów kodu, które mogą Ci pomóc w budowie aplikacji z użyciem:
+
+- **LangChain** (do RAG i zarządzania przepływem danych),
+- **Ollama** (lokalne modele LLM),
+- **Streamlit** (interfejs użytkownika),
+- **FastAPI** (backend API),
+- **PostgreSQL + Psycopg 3 z asyncio** (baza danych),
+- **Embeddings + feedback od użytkownika**.
+
+---
+
+### 1. **Async PostgreSQL z Psycopg 3**
+
+```python
+import psycopg
+import asyncio
+
+async def insert_feedback(row_id: int, is_correct: bool):
+    async with await psycopg.AsyncConnection.connect("dbname=yourdb user=youruser password=yourpass") as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO feedback (row_id, is_correct) VALUES (%s, %s)",
+                (row_id, is_correct)
+            )
+            await conn.commit()
+```
+
+---
+
+### 2. **LangChain z lokalnym modelem Ollama**
+
+```python
+from langchain.llms import Ollama
+from langchain.chains import RetrievalQA
+from langchain.vectorstores import PGVector
+from langchain.embeddings import OllamaEmbeddings
+
+llm = Ollama(model="your-model-name")
+embeddings = OllamaEmbeddings(model="your-model-name")
+
+vectorstore = PGVector(
+    connection_string="postgresql+psycopg://user:pass@localhost/dbname",
+    embedding_function=embeddings,
+    collection_name="your_collection"
+)
+
+qa_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    retriever=vectorstore.as_retriever(),
+    return_source_documents=True
+)
+```
+
+---
+
+### 3. **FastAPI endpoint do przetwarzania zapytań**
+
+```python
+from fastapi import FastAPI, Request
+from pydantic import BaseModel
+
+app = FastAPI()
+
+class QueryInput(BaseModel):
+    text: str
+
+@app.post("/query")
+async def query(input: QueryInput):
+    result = qa_chain.run(input.text)
+    return {"result": result}
+```
+
+---
+
+### 4. **Streamlit frontend z tabelą i feedbackiem**
+
+```python
+import streamlit as st
+import requests
+
+st.title("RAG App")
+
+text_input = st.text_area("Wprowadź tekst")
+
+if st.button("Wyślij"):
+    response = requests.post("http://localhost:8000/query", json={"text": text_input})
+    result = response.json()["result"]
+
+    st.write("Wynik:")
+    st.table(result["table"])  # zakładam, że wynik zawiera tabelę
+
+    for i, row in enumerate(result["table"]):
+        feedback = st.radio(f"Rząd {i} poprawny?", ["Tak", "Nie"], key=f"feedback_{i}")
+        # Można wysłać feedback do backendu
+```
+
+---
+
+### 5. **Przykład struktury tabeli w PostgreSQL**
+
+```sql
+CREATE TABLE feedback (
+    id SERIAL PRIMARY KEY,
+    row_id INT,
+    is_correct BOOLEAN,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+Czy chcesz, żebym pomógł Ci zbudować konkretny plik projektu (np. `main.py`, `app.py`, `db.py`, `frontend.py`) albo docker-compose do uruchomienia całości?
+
+
+
+Oto gotowy plik `feedback.py` dla FastAPI z obsługą **asynchronicznego zapisu feedbacku** do PostgreSQL przy użyciu **Psycopg 3 z asyncio**:
+
+---
+
+### ✅ `feedback.py`
+
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel
+import psycopg
+import asyncio
+
+app = FastAPI()
+
+# Model danych wejściowych
+class FeedbackInput(BaseModel):
+    row_id: int
+    is_correct: bool
+
+# Asynchroniczny endpoint POST
+@app.post("/feedback")
+async def submit_feedback(feedback: FeedbackInput):
+    async with await psycopg.AsyncConnection.connect(
+        "dbname=yourdb user=youruser password=yourpass host=localhost"
+    ) as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO feedback (row_id, is_correct) VALUES (%s, %s)",
+                (feedback.row_id, feedback.is_correct)
+            )
+            await conn.commit()
+    return {
+        "status": "ok",
+        "row_id": feedback.row_id,
+        "is_correct": feedback.is_correct
+    }
+```
+
+---
+
+### 🔧 Wymagania
+
+Upewnij się, że masz zainstalowany **Psycopg 3** z obsługą asyncio:
+
+```bash
+pip install psycopg[binary] psycopg[async]
+```
+
+---
+
+### 🧪 Testowanie
+
+Uruchom FastAPI:
+
+```bash
+uvicorn feedback:app --reload
+```
+
+Testuj endpoint np. przez `curl` lub Postmana:
+
+```bash
+curl -X POST http://localhost:8000/feedback \
+     -H "Content-Type: application/json" \
+     -d '{"row_id": 1, "is_correct": true}'
+```
+
+---
+
+Chcesz, żebym przygotował też plik `Dockerfile` lub `docker-compose.yml` do uruchomienia FastAPI z PostgreSQL?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

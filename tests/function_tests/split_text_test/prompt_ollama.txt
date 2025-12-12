@@ -1,0 +1,842 @@
+I'm using Python, a Postgres database with Psycopg 3 (not Alchemy), and a local language model for Polish, such as Bielik. I want to write a Python function that includes:
+1) assigns a prompt with questions to a given tax, depending on the tax type.
+2) The user enters text, and the language model responds according to the prompt.
+3) The results are saved in a dictionary (Python), which can be used for vectorization.
+4) vectorize the results.
+5) time the stages.
+6) save them to the Postgres database.
+
+Używam Python, baze danych Postgres z Psycopg 3 nie alchemy oraz lokalny model językowy dla języka polskiego taki jak Bielik. Chcę napisać funkcję w Python, która zawiera:
+1) w zależnoścu od typu podatku przypisuje prompt z pytaniami do danego podatku. 
+2) użytkownik wprowadza tekst a model językowy odpowiada według promptu
+3) wyniki są zapisywane w słowniku (python), kótry można wykorzystać do wektoryzyacji 
+4) dokonaj wekotryzacji wyników
+5) dla etapów zmierz czas
+6) zapisz do bazy ppostgres
+
+
+https://github.com/pgvector/pgvector-python
+I'm using Python, Langchain,  multiprocessing, batch processing, a sentence transformer, a Postgres database with Psycopg 3 (not Alchemy), pg_vector, and an Ollama local language model for Polish, such as Bielik. 
+I want to write a Python function that includes:
+1) assigns a prompt with questions to a given tax, depending on the tax type.
+2) The user enters text, and the language model responds according to the prompt.
+3) The results are saved in a dictionary (Python), which can be used for vectorization.
+4) vectorize the results.
+5) measure the time for each step.
+6) save to the Postgres database.
+
+
+
+
+########################################
+
+####################################
+# -*- coding: utf-8 -*-
+
+"""
+Skrypt do analizy tekstu podatkowego przy użyciu lokalnego modelu LLM (Ollama),
+wektoryzacji (SentenceTransformer) i zapisu do bazy PostgreSQL (Psycopg 3)
+z użyciem rozszerzenia pg_vector.
+
+Wymagania:
+1. Uruchomiony serwer Ollama.
+2. Pobrany model, np. 'bielik' (`ollama pull bielik`).
+3. Działająca baza danych PostgreSQL z rozszerzeniem pg_vector.
+   (Uruchom w bazie: CREATE EXTENSION IF NOT EXISTS vector;)
+4. Zainstalowane biblioteki (zobacz requirements.txt).
+"""
+
+import time
+import psycopg  # Importujemy Psycopg 3
+import json
+import logging
+from typing import Dict, Any, Optional
+from sentence_transformers import SentenceTransformer
+from langchain_community.llms import Ollama
+from pgvector.psycopg import register_vector # <-- ZMIANA: Import dla pg_vector
+
+# --- Konfiguracja logowania ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# --- 1. Przypisanie promptu (w języku polskim) ---
+TAX_PROMPTS = {
+    "PIT": "Jesteś ekspertem podatkowym specjalizującym się w PIT. Użytkownik podaje tekst. Twoim zadaniem jest zidentyfikować kluczowe zobowiązania, potencjalne ulgi i najważniejsze terminy. Odpowiedz w klarownych punktach. Tekst użytkownika: {user_text}",
+    "CIT": "Jesteś doradcą podatkowym specjalizującym się w CIT. Przeanalizuj poniższy tekst i wyjaśnij skomplikowane koncepcje w prosty, zrozumiały sposób. Skup się na obowiązkach spółki. Tekst użytkownika: {user_text}",
+    "VAT": "Jesteś specjalistą od podatku VAT. Na podstawie tekstu użytkownika, odpowiedz na pytanie lub wyjaśnij zagadnienie, koncentrując się na stawkach, miejscu świadczenia usług i obowiązku podatkowym. Tekst użytkownika: {user_text}",
+    "default": "Jesteś pomocnym asystentem AI. Przeanalizuj tekst użytkownika i odpowiedz na jego pytanie lub wykonaj polecenie. Tekst użytkownika: {user_text}"
+}
+
+# --- Komenda SQL do stworzenia tabeli (dla referencji) ---
+# Usunięto globalną stałą, tabela będzie tworzona dynamicznie w main()
+# w zależności od wymiaru wektora.
+
+
+def process_tax_text(
+    user_text: str,
+    tax_type: str,
+    conn: psycopg.Connection,
+    llm: Ollama,
+    embedding_model: SentenceTransformer
+) -> Optional[Dict[str, Any]]:
+    """
+    Przetwarza tekst użytkownika na podstawie typu podatku, generuje odpowiedź LLM,
+    wektoryzuje ją (do numpy array), mierzy czasy i zapisuje do PostgreSQL (pg_vector).
+    """
+    logging.info(f"Rozpoczynam przetwarzanie dla typu: {tax_type}")
+    
+    # Słownik na wyniki i pomiary czasu
+    timings = {}
+    results_dict = {
+        "user_text": user_text,
+        "tax_type": tax_type,
+    }
+
+    # --- 1. Przypisanie promptu ---
+    prompt_template = TAX_PROMPTS.get(tax_type, TAX_PROMPTS["default"])
+    formatted_prompt = prompt_template.format(user_text=user_text)
+    logging.info("Prompt został przygotowany.")
+
+    # --- 2. Interakcja z LLM (model językowy) i pomiar czasu ---
+    try:
+        start_llm = time.perf_counter()
+        llm_response = llm.invoke(formatted_prompt)
+        end_llm = time.perf_counter()
+        
+        timings["llm_time_ms"] = (end_llm - start_llm) * 1000
+        results_dict["llm_response"] = llm_response
+        logging.info(f"Odpowiedź LLM wygenerowana w {timings['llm_time_ms']:.2f} ms.")
+    except Exception as e:
+        logging.error(f"Błąd podczas wywołania LLM: {e}")
+        return None  # Zwróć None w razie błędu
+
+    # --- 3. Wyniki w słowniku (częściowo) & 4. Wektoryzacja i pomiar czasu ---
+    try:
+        start_vector = time.perf_counter()
+        # Wektoryzujemy odpowiedź LLM do formatu numpy.ndarray
+        # ZMIANA: Usunięto .tolist()
+        vector = embedding_model.encode(llm_response)
+        end_vector = time.perf_counter()
+        
+        timings["vector_time_ms"] = (end_vector - start_vector) * 1000
+        results_dict["vector"] = vector  # Wektor dodany do słownika (jako numpy array)
+        logging.info(f"Wektoryzacja odpowiedzi w {timings['vector_time_ms']:.2f} ms.")
+    except Exception as e:
+        logging.error(f"Błąd podczas wektoryzacji: {e}")
+        return None
+
+    # --- 5. Pomiar czasu (zebrane) & 6. Zapis do Postgres i pomiar czasu ---
+    start_db = time.perf_counter()
+    new_id = None
+    try:
+        # Używamy `with` dla kursora
+        with conn.cursor() as cur:
+            # ZMIANA: Usunięto konwersję do JSON.
+            # Adapter pgvector zajmie się konwersją numpy array.
+            
+            sql = """
+            INSERT INTO tax_analysis 
+                (user_text, tax_type, llm_response, response_vector, llm_time_ms, vector_time_ms)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id;
+            """
+            # Wykonujemy zapytanie
+            cur.execute(
+                sql,
+                (
+                    user_text,
+                    tax_type,
+                    llm_response,
+                    vector,  # ZMIANA: Przekazujemy bezpośrednio obiekt numpy
+                    timings["llm_time_ms"],
+                    timings["vector_time_ms"],
+                ),
+            )
+            
+            # Pobierz ID nowo wstawionego wiersza
+            new_id_tuple = cur.fetchone()
+            if new_id_tuple:
+                new_id = new_id_tuple[0]
+            
+            # Zapisz zmiany (ważne!)
+            conn.commit() 
+            
+            end_db = time.perf_counter()
+            timings["db_save_time_ms"] = (end_db - start_db) * 1000
+            
+            # Zaktualizujmy czas zapisu do bazy w osobnym zapytaniu
+            if new_id:
+                cur.execute(
+                    "UPDATE tax_analysis SET db_save_time_ms = %s WHERE id = %s",
+                    (timings["db_save_time_ms"], new_id)
+                )
+                conn.commit()
+            
+            logging.info(f"Zapisano do bazy (ID: {new_id}) w {timings['db_save_time_ms']:.2f} ms.")
+
+    except (psycopg.Error, Exception) as e:
+        logging.error(f"Błąd podczas operacji na bazie danych: {e}")
+        conn.rollback()  # Wycofaj zmiany w razie błędu
+        return None
+
+    # --- Końcowy słownik z wynikami ---
+    results_dict["timings"] = timings
+    results_dict["db_id"] = new_id
+    
+    logging.info(f"Zakończono przetwarzanie dla ID: {new_id}.")
+    return results_dict
+
+# --- Przykładowe użycie ---
+def main():
+    """Główna funkcja do uruchomienia przykładu."""
+    
+    # --- Inicjalizacja modeli ---
+    try:
+        logging.info("Inicjalizacja modelu LLM (Ollama)...")
+        llm = Ollama(model="bielik") 
+        llm.invoke("test") 
+        logging.info("Model LLM gotowy.")
+
+        logging.info("Inicjalizacja modelu SentenceTransformer...")
+        embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        # ZMIANA: Pobierz wymiar wektora z modelu
+        dimension = embedding_model.get_sentence_embedding_dimension()
+        logging.info(f"Model SentenceTransformer gotowy. Wymiar wektora: {dimension}")
+
+    except Exception as e:
+        logging.error(f"Błąd podczas inicjalizacji modeli: {e}")
+        logging.error("Upewnij się, że Ollama jest uruchomiona i masz model 'bielik'.")
+        logging.error("Upewnij się, że biblioteka 'sentence-transformers' jest zainstalowana.")
+        return
+
+    # --- Połączenie z bazą danych (Psycopg 3) ---
+    DB_CONN_STRING = "dbname=postgres user=postgres password=mysecretpassword host=localhost port=5432"
+
+    try:
+        with psycopg.connect(DB_CONN_STRING) as conn:
+            logging.info("Pomyślnie połączono z PostgreSQL.")
+
+            # === ZMIANY DLA PG_VECTOR ===
+            
+            # 1. Zarejestruj adapter pgvector
+            register_vector(conn)
+            logging.info("Zarejestrowano adapter pgvector dla połączenia.")
+
+            # 2. Włącz rozszerzenie i stwórz tabelę
+            with conn.cursor() as cur:
+                # Krok 2a: Upewnij się, że rozszerzenie jest włączone
+                cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+                logging.info("Włączono rozszerzenie 'vector' w bazie danych (jeśli nie istniało).")
+                
+                # Krok 2b: Dynamiczne tworzenie tabeli z odpowiednim wymiarem
+                CREATE_TABLE_SQL_PGVECTOR = f"""
+                CREATE TABLE IF NOT EXISTS tax_analysis (
+                    id SERIAL PRIMARY KEY,
+                    user_text TEXT,
+                    tax_type VARCHAR(50),
+                    llm_response TEXT,
+                    response_vector vector({dimension}), -- ZMIANA: Używamy typu vector(N)
+                    llm_time_ms FLOAT,
+                    vector_time_ms FLOAT,
+                    db_save_time_ms FLOAT,
+                    created_at TIMESTAMPO WITH TIME ZONE DEFAULT NOW()
+                );
+                """
+                cur.execute(CREATE_TABLE_SQL_PGVECTOR)
+                conn.commit()
+                logging.info(f"Tabela 'tax_analysis' (z wektorem o wymiarze {dimension}) jest gotowa.")
+
+            # === KONIEC ZMIAN PG_VECTOR ===
+
+            # --- Przykład 1: VAT ---
+            sample_text_1 = "Moja firma IT świadczy usługi programistyczne dla klienta z Niemiec (firma). Jaka stawka VAT obowiązuje i gdzie powinienem rozliczyć podatek?"
+            sample_tax_type_1 = "VAT"
+
+            analysis_results_1 = process_tax_text(
+                sample_text_1,
+                sample_tax_type_1,
+                conn,
+                llm,
+                embedding_model
+            )
+
+            if analysis_results_1:
+                print("\n--- Wyniki Analizy (1) ---")
+                print(f"Typ: {analysis_results_1['tax_type']}")
+                print(f"ID w Bazie: {analysis_results_1['db_id']}")
+                print(f"Odpowiedź LLM: {analysis_results_1['llm_response'][:150]}...")
+                # Wyświetl wektor jako numpy array (fragment)
+                print(f"Wektor (numpy, pierwsze 3 wymiary): {analysis_results_1['vector'][:3]}...")
+                print(f"Czasy (ms): {analysis_results_1['timings']}")
+
+            # --- Przykład 2: PIT ---
+            sample_text_2 = "Jestem grafikiem komputerowym na B2B, słyszałem o uldze IP Box. Czy tworzenie projektów logo i identyfikacji wizualnej kwalifikuje się do tej ulgi? Jakie warunki muszę spełnić?"
+            sample_tax_type_2 = "PIT"
+            
+            analysis_results_2 = process_tax_text(
+                sample_text_2,
+                sample_tax_type_2,
+                conn,
+                llm,
+                embedding_model
+            )
+            
+            if analysis_results_2:
+                print("\n--- Wyniki Analizy (2) ---")
+                print(f"Typ: {analysis_results_2['tax_type']}")
+                print(f"ID w Bazie: {analysis_results_2['db_id']}")
+                print(f"Odpowiedź LLM: {analysis_results_2['llm_response'][:150]}...")
+                print(f"Czasy (ms): {analysis_results_2['timings']}")
+
+    except psycopg.OperationalError as e:
+        logging.error(f"Błąd połączenia z bazą danych: {e}")
+        logging.error("Sprawdź swój connection string i upewnij się, że Postgres działa.")
+    except Exception as e:
+        logging.error(f"Wystąpił nieoczekiwany błąd: {e}")
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
+
+
+##################################################
+##################################################
+##################################################
+
+
+
+
+
+import time
+import json
+import os
+import numpy as np
+import psycopg
+from psycopg.types.json import Jsonb
+
+# --- MOCK CLASSES AND SETUP ---
+# NOTE: Replace these mock classes with actual implementations using the Bielik LLM
+# and your chosen vectorization library (e.g., Sentence Transformers, fastText, etc.)
+
+class MockLocalLLM:
+    """
+    Mocks the behavior of a local LLM (like Bielik) for structured extraction.
+    In a real scenario, this class would handle the model loading, inference, 
+    and prompt application.
+    """
+    def __init__(self, model_name="Bielik-7B-PL"):
+        print(f"Initializing Mock Local LLM: {model_name}...")
+        self.model_name = model_name
+        time.sleep(0.5) # Simulate load time
+
+    def analyze_text(self, text, system_prompt):
+        """
+        Simulates calling the LLM and receiving a structured (JSON) response.
+        """
+        start_time = time.perf_counter()
+
+        # In a real app, you would send 'text' and 'system_prompt' to the LLM
+        # and instruct it to return a JSON object containing the answers.
+        
+        # Mocking the structured result dictionary (which will be saved as JSONB)
+        mock_result = {
+            "model": self.model_name,
+            "analysis_time_sec": 1.25, # Mock inference time for the LLM engine
+            "response": {
+                "tax_payer_type": "Osoba Fizyczna (Sole Proprietor)",
+                "income_source": "Umowa o pracę (Employment Contract)",
+                "deductions_mentioned": True,
+                "keywords": ["zwolnienie", "koszty uzyskania przychodu", "ulgi"]
+            },
+            "prompt_used": system_prompt
+        }
+        
+        end_time = time.perf_counter()
+        elapsed = end_time - start_time
+        
+        # Introduce some variance for a more realistic timing mock
+        mock_result['analysis_time_sec'] = elapsed + np.random.uniform(0.1, 0.5)
+
+        return mock_result, elapsed
+
+class MockVectorizer:
+    """
+    Mocks a vector embedding generation process.
+    """
+    def __init__(self, vector_dim=768):
+        print(f"Initializing Mock Vectorizer (Dim: {vector_dim})...")
+        self.dim = vector_dim
+        time.sleep(0.3) # Simulate load time
+
+    def generate_embedding(self, data_dict):
+        """
+        Converts the relevant parts of the LLM's structured output into a vector.
+        In a real application, you might convert the full JSON to a string,
+        or just the 'response' text, and embed that.
+        """
+        start_time = time.perf_counter()
+        
+        # Simulate embedding generation: create a random vector
+        embedding = np.random.rand(self.dim).astype(np.float32)
+        
+        end_time = time.perf_counter()
+        elapsed = end_time - start_time
+        
+        return embedding, elapsed
+
+# --- CONFIGURATION ---
+
+# 1) Assign a prompt with questions to a given tax, depending on the tax type.
+TAX_PROMPTS = {
+    "PIT": (
+        "Jesteś ekspertem ds. polskiego podatku PIT (Personal Income Tax). "
+        "Przeanalizuj poniższy tekst i wyodrębnij kluczowe informacje: rodzaj podatnika, "
+        "główne źródło dochodu, oraz czy są wspomniane ulgi lub odliczenia. "
+        "Odpowiedz w formie czystego obiektu JSON, bez żadnego dodatkowego tekstu."
+    ),
+    "VAT": (
+        "Jesteś ekspertem ds. polskiego podatku VAT (Value Added Tax). "
+        "Przeanalizuj poniższy tekst i wyodrębnij informacje o stawce VAT (np. 23%, 8%, 5%), "
+        "rodzaju świadczonej usługi lub sprzedawanego towaru, oraz o statusie JPK_V7. "
+        "Odpowiedz w formie czystego obiektu JSON, bez żadnego dodatkowego tekstu."
+    )
+}
+
+# Mock PostgreSQL Connection String (Update with your actual connection details)
+# Format: "postgresql://user:password@host:port/dbname"
+DATABASE_URL = os.environ.get(
+    "POSTGRES_URL",
+    "postgresql://user:password@localhost:5432/tax_db"
+)
+
+# --- DATABASE FUNCTIONS ---
+
+def setup_database(conn_url):
+    """
+    Creates the necessary table if it doesn't exist.
+    Uses BYTEA for vector storage and JSONB for structured data and timing.
+    """
+    try:
+        with psycopg.connect(conn_url) as conn:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                print("Setting up database table...")
+                # Note: 'embedding' is stored as BYTEA for raw binary vector data.
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS llm_tax_analysis (
+                        id SERIAL PRIMARY KEY,
+                        tax_type VARCHAR(10) NOT NULL,
+                        original_text TEXT NOT NULL,
+                        llm_results JSONB,
+                        embedding BYTEA,
+                        timing_sec JSONB,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+            print("Database table 'llm_tax_analysis' is ready.")
+            return True
+    except psycopg.OperationalError as e:
+        print(f"Error connecting to the database: {e}")
+        print("Please ensure your PostgreSQL server is running and connection details are correct.")
+        return False
+
+def save_to_postgres(conn_url, tax_type, original_text, llm_results, embedding, timing_data):
+    """
+    6) save them to the Postgres database.
+    """
+    start_time = time.perf_counter()
+    
+    # 3) The results are saved in a dictionary (llm_results), and 4) vectorize the results (embedding).
+    
+    # Convert numpy array to bytes for BYTEA storage
+    embedding_bytes = embedding.tobytes()
+
+    try:
+        with psycopg.connect(conn_url) as conn:
+            with conn.cursor() as cur:
+                insert_query = """
+                INSERT INTO llm_tax_analysis 
+                    (tax_type, original_text, llm_results, embedding, timing_sec)
+                VALUES 
+                    (%s, %s, %s, %s, %s);
+                """
+                # Use Jsonb() wrapper for dictionary to be inserted as JSONB
+                cur.execute(insert_query, (
+                    tax_type,
+                    original_text,
+                    Jsonb(llm_results),
+                    embedding_bytes,
+                    Jsonb(timing_data)
+                ))
+            conn.commit()
+            
+    except Exception as e:
+        print(f"Database insertion failed: {e}")
+        return False
+
+    end_time = time.perf_counter()
+    save_time = end_time - start_time
+    
+    timing_data['database_save'] = save_time
+    
+    print(f"\n[DB] Data saved successfully in {save_time:.4f} seconds.")
+    print(f"[DB] Total pipeline time: {sum(timing_data.values()):.4f} seconds.")
+    
+    return True
+
+
+# --- MAIN PIPELINE FUNCTION ---
+
+def process_tax_document(tax_type: str, user_text: str, llm_tool: MockLocalLLM, vector_tool: MockVectorizer, conn_url: str):
+    """
+    Main function to run the full analysis pipeline:
+    1) Assigns prompt.
+    2) LLM responds and creates dictionary.
+    3) & 4) Vectorize results.
+    5) Times stages.
+    6) Saves to DB.
+    """
+    timing = {}
+    
+    # 1) assigns a prompt with questions to a given tax, depending on the tax type.
+    if tax_type not in TAX_PROMPTS:
+        print(f"Error: Unknown tax type '{tax_type}'. Choose from {list(TAX_PROMPTS.keys())}.")
+        return False
+
+    system_prompt = TAX_PROMPTS[tax_type]
+    print(f"\n--- Starting Analysis for {tax_type} ---")
+    print(f"[PROMPT] Using prompt:\n{system_prompt}")
+    print(f"[TEXT] Analyzing text:\n'{user_text[:100]}...'")
+
+    # --- Stage 1: LLM Interaction (Timed) ---
+    start_llm = time.perf_counter()
+    
+    # 2) The user enters text, and the language model responds according to the prompt.
+    # 3) The results are saved in a dictionary (Python).
+    llm_results, llm_mock_time = llm_tool.analyze_text(user_text, system_prompt)
+    
+    end_llm = time.perf_counter()
+    timing['llm_inference'] = end_llm - start_llm
+    
+    print(f"\n[STAGE 1] LLM Result Dictionary Generated (Time: {timing['llm_inference']:.4f}s):")
+    print(json.dumps(llm_results, indent=2, ensure_ascii=False))
+
+    # --- Stage 2: Vectorization (Timed) ---
+    start_vec = time.perf_counter()
+    
+    # 4) vectorize the results.
+    embedding, vec_mock_time = vector_tool.generate_embedding(llm_results)
+    
+    end_vec = time.perf_counter()
+    timing['vectorization'] = end_vec - start_vec
+    
+    print(f"[STAGE 2] Vectorization Completed (Time: {timing['vectorization']:.4f}s).")
+    print(f"Embedding shape: {embedding.shape}")
+    
+    # 5) time the stages.
+    timing['total_processing'] = timing['llm_inference'] + timing['vectorization']
+    print(f"\n[TIMING] Processing Time (LLM + Vectorization): {timing['total_processing']:.4f} seconds.")
+
+    # --- Stage 3: Database Save (Timed) & Finalization ---
+    # 6) save them to the Postgres database.
+    success = save_to_postgres(conn_url, tax_type, user_text, llm_results, embedding, timing)
+    
+    if success:
+        print("\n--- Pipeline Succeeded ---")
+        print(f"Final Timings: {json.dumps(timing, indent=2, ensure_ascii=False)}")
+    else:
+        print("\n--- Pipeline FAILED during DB operation ---")
+        
+    return success
+
+
+if __name__ == '__main__':
+    # Initialize mock tools
+    llm = MockLocalLLM()
+    vectorizer = MockVectorizer()
+    
+    # 0. Setup the database (run once)
+    if not setup_database(DATABASE_URL):
+        # Exit if DB setup fails
+        exit(1) 
+
+    # Example 1: PIT (Personal Income Tax) Analysis
+    pit_text = (
+        "W zeznaniu rocznym PIT za 2024 muszę uwzględnić przychód z umowy o pracę, "
+        "ale także z działalności gospodarczej. Zdecydowałem się na rozliczenie ulgi "
+        "na dziecko, a także odliczenie składek na ubezpieczenie społeczne i zdrowotne."
+    )
+    process_tax_document("PIT", pit_text, llm, vectorizer, DATABASE_URL)
+    
+    # Example 2: VAT (Value Added Tax) Analysis
+    vat_text = (
+        "Nasza firma zajmuje się sprzedażą książek elektronicznych. Zgodnie z przepisami, "
+        "książki (e-booki) podlegają obniżonej stawce VAT 5%. Musimy złożyć JPK_V7M, "
+        "aby rozliczyć podatek należny i naliczony."
+    )
+    process_tax_document("VAT", vat_text, llm, vectorizer, DATABASE_URL)
+
+    print("\nScript finished. Check your PostgreSQL database 'tax_db' for the 'llm_tax_analysis' table.")
+
+####################################################
+
+
+
+
+
+
+# -*- coding: utf-8 -*-
+
+"""
+Skrypt do analizy tekstu podatkowego przy użyciu lokalnego modelu LLM (Ollama),
+wektoryzacji (SentenceTransformer) i zapisu do bazy PostgreSQL (Psycopg 3).
+
+Wymagania:
+1. Uruchomiony serwer Ollama.
+2. Pobrany model, np. 'bielik' (`ollama pull bielik`).
+3. Działająca baza danych PostgreSQL.
+4. Zainstalowane biblioteki (zobacz requirements.txt).
+"""
+
+import time
+import psycopg  # Importujemy Psycopg 3
+import json
+import logging
+from typing import Dict, Any, Optional
+from sentence_transformers import SentenceTransformer
+from langchain_community.llms import Ollama
+
+# --- Konfiguracja logowania ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# --- 1. Przypisanie promptu (w języku polskim) ---
+TAX_PROMPTS = {
+    "PIT": "Jesteś ekspertem podatkowym specjalizującym się w PIT. Użytkownik podaje tekst. Twoim zadaniem jest zidentyfikować kluczowe zobowiązania, potencjalne ulgi i najważniejsze terminy. Odpowiedz w klarownych punktach. Tekst użytkownika: {user_text}",
+    "CIT": "Jesteś doradcą podatkowym specjalizującym się w CIT. Przeanalizuj poniższy tekst i wyjaśnij skomplikowane koncepcje w prosty, zrozumiały sposób. Skup się na obowiązkach spółki. Tekst użytkownika: {user_text}",
+    "VAT": "Jesteś specjalistą od podatku VAT. Na podstawie tekstu użytkownika, odpowiedz na pytanie lub wyjaśnij zagadnienie, koncentrując się na stawkach, miejscu świadczenia usług i obowiązku podatkowym. Tekst użytkownika: {user_text}",
+    "default": "Jesteś pomocnym asystentem AI. Przeanalizuj tekst użytkownika i odpowiedz na jego pytanie lub wykonaj polecenie. Tekst użytkownika: {user_text}"
+}
+
+# --- Komenda SQL do stworzenia tabeli (dla referencji) ---
+CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS tax_analysis (
+    id SERIAL PRIMARY KEY,
+    user_text TEXT,
+    tax_type VARCHAR(50),
+    llm_response TEXT,
+    response_vector JSONB, -- Przechowuje wektor jako JSONB
+    llm_time_ms FLOAT,
+    vector_time_ms FLOAT,
+    db_save_time_ms FLOAT,
+    created_at TIMESTAMPO WITH TIME ZONE DEFAULT NOW()
+);
+"""
+
+def process_tax_text(
+    user_text: str,
+    tax_type: str,
+    conn: psycopg.Connection,
+    llm: Ollama,
+    embedding_model: SentenceTransformer
+) -> Optional[Dict[str, Any]]:
+    """
+    Przetwarza tekst użytkownika na podstawie typu podatku, generuje odpowiedź LLM,
+    wektoryzuje ją, mierzy czasy i zapisuje do PostgreSQL przy użyciu Psycopg 3.
+    """
+    logging.info(f"Rozpoczynam przetwarzanie dla typu: {tax_type}")
+    
+    # Słownik na wyniki i pomiary czasu
+    timings = {}
+    results_dict = {
+        "user_text": user_text,
+        "tax_type": tax_type,
+    }
+
+    # --- 1. Przypisanie promptu ---
+    prompt_template = TAX_PROMPTS.get(tax_type, TAX_PROMPTS["default"])
+    formatted_prompt = prompt_template.format(user_text=user_text)
+    logging.info("Prompt został przygotowany.")
+
+    # --- 2. Interakcja z LLM (model językowy) i pomiar czasu ---
+    try:
+        start_llm = time.perf_counter()
+        llm_response = llm.invoke(formatted_prompt)
+        end_llm = time.perf_counter()
+        
+        timings["llm_time_ms"] = (end_llm - start_llm) * 1000
+        results_dict["llm_response"] = llm_response
+        logging.info(f"Odpowiedź LLM wygenerowana w {timings['llm_time_ms']:.2f} ms.")
+    except Exception as e:
+        logging.error(f"Błąd podczas wywołania LLM: {e}")
+        return None  # Zwróć None w razie błędu
+
+    # --- 3. Wyniki w słowniku (częściowo) & 4. Wektoryzacja i pomiar czasu ---
+    try:
+        start_vector = time.perf_counter()
+        # Wektoryzujemy odpowiedź LLM
+        vector = embedding_model.encode(llm_response).tolist()
+        end_vector = time.perf_counter()
+        
+        timings["vector_time_ms"] = (end_vector - start_vector) * 1000
+        results_dict["vector"] = vector  # Wektor dodany do słownika
+        logging.info(f"Wektoryzacja odpowiedzi w {timings['vector_time_ms']:.2f} ms.")
+    except Exception as e:
+        logging.error(f"Błąd podczas wektoryzacji: {e}")
+        return None
+
+    # --- 5. Pomiar czasu (zebrane) & 6. Zapis do Postgres i pomiar czasu ---
+    start_db = time.perf_counter()
+    new_id = None
+    try:
+        # Używamy `with` dla kursora
+        with conn.cursor() as cur:
+            # Konwertujemy listę (wektor) na string JSONB
+            # Psycopg 3 może wymagać adaptera, ale json.dumps jest bezpieczne
+            vector_json = json.dumps(vector)
+            
+            sql = """
+            INSERT INTO tax_analysis 
+                (user_text, tax_type, llm_response, response_vector, llm_time_ms, vector_time_ms)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id;
+            """
+            # Wykonujemy zapytanie
+            cur.execute(
+                sql,
+                (
+                    user_text,
+                    tax_type,
+                    llm_response,
+                    vector_json,  # Przekazujemy string JSON
+                    timings["llm_time_ms"],
+                    timings["vector_time_ms"],
+                ),
+            )
+            
+            # Pobierz ID nowo wstawionego wiersza
+            new_id_tuple = cur.fetchone()
+            if new_id_tuple:
+                new_id = new_id_tuple[0]
+            
+            # Zapisz zmiany (ważne!)
+            conn.commit() 
+            
+            end_db = time.perf_counter()
+            timings["db_save_time_ms"] = (end_db - start_db) * 1000
+            
+            # Zaktualizujmy czas zapisu do bazy w osobnym zapytaniu
+            # (Prostsze niż próba wstawienia go w pierwszym INSERT)
+            if new_id:
+                cur.execute(
+                    "UPDATE tax_analysis SET db_save_time_ms = %s WHERE id = %s",
+                    (timings["db_save_time_ms"], new_id)
+                )
+                conn.commit()
+            
+            logging.info(f"Zapisano do bazy (ID: {new_id}) w {timings['db_save_time_ms']:.2f} ms.")
+
+    except (psycopg.Error, Exception) as e:
+        logging.error(f"Błąd podczas operacji na bazie danych: {e}")
+        conn.rollback()  # Wycofaj zmiany w razie błędu
+        return None
+
+    # --- Końcowy słownik z wynikami ---
+    results_dict["timings"] = timings
+    results_dict["db_id"] = new_id
+    
+    logging.info(f"Zakończono przetwarzanie dla ID: {new_id}.")
+    return results_dict
+
+# --- Przykładowe użycie ---
+def main():
+    """Główna funkcja do uruchomienia przykładu."""
+    
+    # --- Inicjalizacja modeli ---
+    try:
+        # Użyj polskiego modelu, np. 'bielik'
+        logging.info("Inicjalizacja modelu LLM (Ollama)...")
+        llm = Ollama(model="bielik") 
+        # Testowe wywołanie, aby sprawdzić, czy działa
+        llm.invoke("test") 
+        logging.info("Model LLM gotowy.")
+
+        # 'all-MiniLM-L6-v2' jest szybki do testów.
+        # Dla lepszych wyników po polsku, użyj np. 'sdadas/st-base-pl-cased'
+        logging.info("Inicjalizacja modelu SentenceTransformer...")
+        embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        logging.info("Model SentenceTransformer gotowy.")
+
+    except Exception as e:
+        logging.error(f"Błąd podczas inicjalizacji modeli: {e}")
+        logging.error("Upewnij się, że Ollama jest uruchomiona i masz model 'bielik'.")
+        logging.error("Upewnij się, że biblioteka 'sentence-transformers' jest zainstalowana.")
+        return
+
+    # --- Połączenie z bazą danych (Psycopg 3) ---
+    # ZASTĄP SWOIMI DANYMI!
+    DB_CONN_STRING = "dbname=postgres user=postgres password=mysecretpassword host=localhost port=5432"
+
+    try:
+        # Użyj `with` do automatycznego zarządzania połączeniem i transakcjami
+        with psycopg.connect(DB_CONN_STRING) as conn:
+            logging.info("Pomyślnie połączono z PostgreSQL.")
+
+            # Stwórz tabelę, jeśli nie istnieje
+            with conn.cursor() as cur:
+                cur.execute(CREATE_TABLE_SQL)
+                conn.commit()
+                logging.info("Tabela 'tax_analysis' jest gotowa.")
+
+            # --- Przykład 1: VAT ---
+            sample_text_1 = "Moja firma IT świadczy usługi programistyczne dla klienta z Niemiec (firma). Jaka stawka VAT obowiązuje i gdzie powinienem rozliczyć podatek?"
+            sample_tax_type_1 = "VAT"
+
+            analysis_results_1 = process_tax_text(
+                sample_text_1,
+                sample_tax_type_1,
+                conn,
+                llm,
+                embedding_model
+            )
+
+            if analysis_results_1:
+                print("\n--- Wyniki Analizy (1) ---")
+                print(f"Typ: {analysis_results_1['tax_type']}")
+                print(f"ID w Bazie: {analysis_results_1['db_id']}")
+                print(f"Odpowiedź LLM: {analysis_results_1['llm_response'][:150]}...")
+                print(f"Wektor (pierwsze 3 wymiary): {analysis_results_1['vector'][:3]}...")
+                print(f"Czasy (ms): {analysis_results_1['timings']}")
+
+            # --- Przykład 2: PIT ---
+            sample_text_2 = "Jestem grafikiem komputerowym na B2B, słyszałem o uldze IP Box. Czy tworzenie projektów logo i identyfikacji wizualnej kwalifikuje się do tej ulgi? Jakie warunki muszę spełnić?"
+            sample_tax_type_2 = "PIT"
+            
+            analysis_results_2 = process_tax_text(
+                sample_text_2,
+                sample_tax_type_2,
+                conn,
+                llm,
+                embedding_model
+            )
+            
+            if analysis_results_2:
+                print("\n--- Wyniki Analizy (2) ---")
+                print(f"Typ: {analysis_results_2['tax_type']}")
+                print(f"ID w Bazie: {analysis_results_2['db_id']}")
+                print(f"Odpowiedź LLM: {analysis_results_2['llm_response'][:150]}...")
+                print(f"Czasy (ms): {analysis_results_2['timings']}")
+
+    except psycopg.OperationalError as e:
+        logging.error(f"Błąd połączenia z bazą danych: {e}")
+        logging.error("Sprawdź swój connection string i upewnij się, że Postgres działa.")
+    except Exception as e:
+        logging.error(f"Wystąpił nieoczekiwany błąd: {e}")
+
+if __name__ == "__main__":
+    main()
+
+

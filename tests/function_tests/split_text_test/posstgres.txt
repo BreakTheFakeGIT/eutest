@@ -1,0 +1,950 @@
+
+CREATE TABLE number_sequences (
+    id SERIAL PRIMARY KEY,
+    sequence TEXT
+)
+
+
+
+SELECT 
+    id,
+    unnest(string_to_array(sequence, ','))::int AS number
+FROM 
+    number_sequences;
+
+INSERT INTO number_sequences (sequence) VALUES
+('1,2,3'),
+('4,5'),
+('6,7,8,9');
+
+SELECT
+    id,
+    TRIM(value) AS number
+FROM number_sequences,
+LATERAL unnest(string_to_array(sequence, ',')) AS value;
+
+SELECT
+    id,
+    TRIM(value) AS number
+FROM (
+    SELECT * FROM number_sequences
+    ORDER BY id
+    LIMIT 100 OFFSET 0  -- Change OFFSET for each batch
+) AS batch,
+LATERAL unnest(string_to_array(batch.sequence, ',')) AS value;
+
+DO $$
+DECLARE
+    batch_size INT := 100;
+    offset_val INT := 0;
+BEGIN
+    LOOP
+        -- Process batch
+        EXECUTE format('
+            INSERT INTO exploded_numbers (id, number)
+            SELECT id, TRIM(value)
+            FROM (
+                SELECT * FROM number_sequences
+                ORDER BY id
+                LIMIT %s OFFSET %s
+            ) AS batch,
+            LATERAL unnest(string_to_array(batch.sequence, '','')) AS value;
+        ', batch_size, offset_val);
+
+        -- Exit condition
+        EXIT WHEN NOT FOUND;
+
+        -- Move to next batch
+        offset_val := offset_val + batch_size;
+    END LOOP;
+END $$;
+
+SELECT cron.schedule(
+    'batch_explode_job',
+    '0 * * * *',  -- Every hour
+    $$ 
+    INSERT INTO exploded_numbers (id, number)
+    SELECT id, TRIM(value)
+    FROM (
+        SELECT * FROM number_sequences
+        ORDER BY id
+        LIMIT 100 OFFSET 0
+    ) AS batch,
+    LATERAL unnest(string_to_array(batch.sequence, ',')) AS value;
+    $$
+);
+
+To use pg_cron, you need to install it and configure it in postgresql.conf.
+0 * * * * psql -U your_user -d your_db -f /path/to/your_script.sql
+
+
+-- Create target table if it doesn't exist
+CREATE TABLE IF NOT EXISTS exploded_numbers (
+    id INT,
+    number TEXT
+);
+
+-- Define batch size and offset manually
+-- You can change these values for each run
+-- For example: OFFSET 0, OFFSET 100, etc.
+WITH batch AS (
+    SELECT * FROM number_sequences
+    ORDER BY id
+    LIMIT 100 OFFSET 0
+)
+INSERT INTO exploded_numbers (id, number)
+SELECT
+    batch.id,
+    TRIM(value) AS number
+FROM batch,
+LATERAL unnest(string_to_array(batch.sequence, ',')) AS value;
+
+
+
+
+CREATE TABLE number_sequences (
+    id SERIAL PRIMARY KEY,
+    sequence TEXT
+);
+
+INSERT INTO number_sequences (sequence) VALUES
+('1,2,3'),
+('4,5'),
+('6,7,8');
+
+
+CREATE TABLE vectorized_data (
+    id INT PRIMARY KEY,
+    embedding VECTOR(3)  -- assuming pgvector extension
+);
+
+-- Example embeddings (3-dimensional vectors)
+INSERT INTO vectorized_data (id, embedding) VALUES
+(1, '[0.1, 0.2, 0.3]'),
+(2, '[0.4, 0.5, 0.6]'),
+(3, '[0.7, 0.8, 0.9]');
+
+
+-- Explode the sequence and join with vectorized data
+SELECT
+    ns.id,
+    TRIM(value) AS number,
+    vd.embedding
+FROM number_sequences ns
+JOIN vectorized_data vd ON ns.id = vd.id
+JOIN LATERAL unnest(string_to_array(ns.sequence, ',')) AS value ON TRUE;
+
+
+pip install langchain transformers sentence-transformers
+from langchain.llms import HuggingFacePipeline
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+
+# Load your local model
+model_name = "gpt2"  # Replace with your local model path or name
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name)
+
+# Create a text generation pipeline
+text_gen_pipeline = pipeline("text-generation", model=model, tokenizer=tokenizer)
+
+# Wrap with LangChain
+llm = HuggingFacePipeline(pipeline=text_gen_pipeline)
+
+# Run a prompt
+response = llm.invoke("What are the benefits of using LangChain with local models?")
+print(response)
+
+
+How to connect LangChain to PostgreSQL?
+
+Can you show an example with embeddings?
+
+What are the best practices for using local models?
+
+
+
+from langchain.chains import SQLDatabaseChain
+from langchain.agents import initialize_agent, Tool
+from langchain.llms import OpenAI  # or your local LLM
+from langchain.sql_database import SQLDatabase
+from sqlalchemy import create_engine
+
+# Connect to PostgreSQL
+db_uri = "postgresql+psycopg2://user:password@localhost:5432/your_database"
+engine = create_engine(db_uri)
+db = SQLDatabase(engine)
+
+# Use a local or cloud LLM
+llm = OpenAI(temperature=0)  # Replace with your local LLM if needed
+
+# Create the chain
+db_chain = SQLDatabaseChain.from_llm(llm, db, verbose=True)
+
+# Ask a question
+query = "What are the top 5 most frequent numbers in the exploded_numbers table?"
+response = db_chain.run(query)
+
+print(response)
+
+
+
+
+I bulit chat bot. I use vectorize Postgres data base and local LLM.  I want  to use  psycopg not  psycopg2 . Write a sample of code in Python
+
+
+Copilot said:
+Copilot
+Great! Since you're using a vectorized PostgreSQL database and a local LLM, and you want to use the modern psycopg (version 3) instead of psycopg2, here's a simple Python example that demonstrates how to:
+
+Connect to a PostgreSQL database using psycopg.
+Create a table with a vector column (assuming you're using pgvector).
+Insert and query vector data.
+
+
+
+How to optimize vector search?
+
+Can you explain pgvector usage?
+
+Show me how to integrate with LLM.
+
+
+import psycopg
+import numpy as np
+
+# Connect to your PostgreSQL database
+conn = psycopg.connect("dbname=your_db user=your_user password=your_password host=localhost port=5432")
+
+# Create a cursor
+cur = conn.cursor()
+
+# Create a table with a vector column (requires pgvector extension)
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS embeddings (
+        id SERIAL PRIMARY KEY,
+        content TEXT,
+        embedding VECTOR(3)  -- Adjust dimension as needed
+    );
+""")
+
+# Insert a sample vector
+sample_vector = np.array([0.1, 0.2, 0.3])
+cur.execute(
+    "INSERT INTO embeddings (content, embedding) VALUES (%s, %s)",
+    ("Example text", sample_vector.tolist())
+)
+
+# Query using cosine similarity (requires pgvector)
+cur.execute("""
+    SELECT id, content, embedding
+    FROM embeddings
+    ORDER BY embedding <=> %s
+    LIMIT 5;
+""", (sample_vector.tolist(),))
+
+# Print results
+for row in cur.fetchall():
+    print(row)
+
+# Commit and close
+conn.commit()
+cur.close()
+conn.close()
+
+
+
+
+
+
+import psycopg
+import numpy as np
+
+class VectorDBClient:
+    def __init__(self, dbname, user, password, host="localhost", port=5432):
+        self.conn = psycopg.connect(
+            dbname=dbname,
+            user=user,
+            password=password,
+            host=host,
+            port=port
+        )
+        self.cur = self.conn.cursor()
+
+    def create_table(self, table_name="embeddings", vector_dim=3):
+        self.cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                id SERIAL PRIMARY KEY,
+                content TEXT,
+                embedding VECTOR({vector_dim})
+            );
+        """)
+        self.conn.commit()
+
+    def insert_embedding(self, content, embedding, table_name="embeddings"):
+        if isinstance(embedding, np.ndarray):
+            embedding = embedding.tolist()
+        self.cur.execute(
+            f"INSERT INTO {table_name} (content, embedding) VALUES (%s, %s)",
+            (content, embedding)
+        )
+        self.conn.commit()
+
+    def query_similar(self, query_vector, table_name="embeddings", limit=5):
+        if isinstance(query_vector, np.ndarray):
+            query_vector = query_vector.tolist()
+        self.cur.execute(f"""
+            SELECT id, content, embedding
+            FROM {table_name}
+            ORDER BY embedding <=> %s
+            LIMIT %s;
+        """, (query_vector, limit))
+        return self.cur.fetchall()
+
+    def close(self):
+        self.cur.close()
+        self.conn.close()
+
+
+----------------
+
+import psycopg
+import numpy as np
+
+class VectorDBClient:
+    def __init__(self, dbname, user, password, host="localhost", port=5432, llm_embed_fn=None):
+        self.conn = psycopg.connect(
+            dbname=dbname,
+            user=user,
+            password=password,
+            host=host,
+            port=port
+        )
+        self.cur = self.conn.cursor()
+        self.llm_embed_fn = llm_embed_fn  # Function to generate embeddings from text
+
+    def create_table(self, table_name="embeddings", vector_dim=3):
+        self.cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                id SERIAL PRIMARY KEY,
+                content TEXT,
+                embedding VECTOR({vector_dim})
+            );
+        """)
+        self.conn.commit()
+
+    def insert_embedding(self, content, embedding, table_name="embeddings"):
+        if isinstance(embedding, np.ndarray):
+            embedding = embedding.tolist()
+        self.cur.execute(
+            f"INSERT INTO {table_name} (content, embedding) VALUES (%s, %s)",
+            (content, embedding)
+        )
+        self.conn.commit()
+
+    def query_similar(self, query_vector, table_name="embeddings", limit=5):
+        if isinstance(query_vector, np.ndarray):
+            query_vector = query_vector.tolist()
+        self.cur.execute(f"""
+            SELECT id, content, embedding
+            FROM {table_name}
+            ORDER BY embedding <=> %s
+            LIMIT %s;
+        """, (query_vector, limit))
+        return self.cur.fetchall()
+
+    def semantic_search(self, query_text, table_name="embeddings", limit=5):
+        if not self.llm_embed_fn:
+            raise ValueError("LLM embedding function not provided.")
+        query_vector = self.llm_embed_fn(query_text)
+        return self.query_similar(query_vector, table_name, limit)
+
+    def close(self):
+        self.cur.close()
+        self.conn.close()
+
+
+
+def local_llm_embed(text: str) -> np.ndarray:
+    # Replace with your actual embedding logic
+    return np.array([0.1, 0.2, 0.3])  # Dummy vector
+
+
+db = VectorDBClient(
+    dbname="your_db",
+    user="your_user",
+    password="your_password",
+    llm_embed_fn=local_llm_embed
+)
+
+db.create_table(vector_dim=3)
+db.insert_embedding("Example text", local_llm_embed("Example text"))
+
+results = db.semantic_search("Find similar content")
+for row in results:
+    print(row)
+
+db.close()
+
+
+
+import psycopg
+import numpy as np
+
+class VectorDBClient:
+    def __init__(self, dbname, user, password, host="localhost", port=5432, llm_embed_fn=None):
+        self.conn = psycopg.connect(
+            dbname=dbname,
+            user=user,
+            password=password,
+            host=host,
+            port=port
+        )
+        self.cur = self.conn.cursor()
+        self.llm_embed_fn = llm_embed_fn  # Function to generate embeddings from text
+
+    def create_table(self, table_name="embeddings", vector_dim=3):
+        self.cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                id SERIAL PRIMARY KEY,
+                content TEXT,
+                embedding VECTOR({vector_dim})
+            );
+        """)
+        self.conn.commit()
+
+    def insert_embedding(self, content, embedding, table_name="embeddings"):
+        if isinstance(embedding, np.ndarray):
+            embedding = embedding.tolist()
+        self.cur.execute(
+            f"INSERT INTO {table_name} (content, embedding) VALUES (%s, %s)",
+            (content, embedding)
+        )
+        self.conn.commit()
+
+    def insert_batch(self, items, table_name="embeddings"):
+        """
+        items: list of tuples (content: str, embedding: np.ndarray or list)
+        """
+        formatted_items = [
+            (content, embedding.tolist() if isinstance(embedding, np.ndarray) else embedding)
+            for content, embedding in items
+        ]
+        self.cur.executemany(
+            f"INSERT INTO {table_name} (content, embedding) VALUES (%s, %s)",
+            formatted_items
+        )
+        self.conn.commit()
+
+    def query_similar(self, query_vector, table_name="embeddings", limit=5):
+        if isinstance(query_vector, np.ndarray):
+            query_vector = query_vector.tolist()
+        self.cur.execute(f"""
+            SELECT id, content, embedding
+            FROM {table_name}
+            ORDER BY embedding <=> %s
+            LIMIT %s;
+        """, (query_vector, limit))
+        return self.cur.fetchall()
+
+    def semantic_search(self, query_text, table_name="embeddings", limit=5):
+        if not self.llm_embed_fn:
+            raise ValueError("LLM embedding function not provided.")
+        query_vector = self.llm_embed_fn(query_text)
+        return self.query_similar(query_vector, table_name, limit)
+
+    def close(self):
+        self.cur.close()
+        self.conn.close()
+
+
+
+def local_llm_embed(text: str) -> np.ndarray:
+    # Replace with your actual embedding logic
+    return np.random.rand(3)  # Dummy 3D vector
+
+db = VectorDBClient(
+    dbname="your_db",
+    user="your_user",
+    password="your_password",
+    llm_embed_fn=local_llm_embed
+)
+
+db.create_table(vector_dim=3)
+
+# Prepare batch data
+texts = ["First example", "Second example", "Third example"]
+batch_items = [(text, local_llm_embed(text)) for text in texts]
+
+# Insert batch
+db.insert_batch(batch_items)
+
+# Semantic search
+results = db.semantic_search("Find something like second example")
+for row in results:
+    print(row)
+
+db.close()
+
+
+
+
+
+
+import psycopg
+import numpy as np
+
+class VectorDBClient:
+    def __init__(self, dbname, user, password, host="localhost", port=5432, llm_embed_fn=None):
+        self.conn = psycopg.connect(
+            dbname=dbname,
+            user=user,
+            password=password,
+            host=host,
+            port=port
+        )
+        self.cur = self.conn.cursor()
+        self.llm_embed_fn = llm_embed_fn
+
+    def create_table(self, table_name="embeddings", vector_dim=3):
+        self.cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                id SERIAL PRIMARY KEY,
+                external_id TEXT UNIQUE,
+                content TEXT,
+                embedding VECTOR({vector_dim})
+            );
+        """)
+        self.conn.commit()
+
+    def insert_embedding(self, content, embedding, external_id=None, table_name="embeddings"):
+        if isinstance(embedding, np.ndarray):
+            embedding = embedding.tolist()
+        self.cur.execute(
+            f"""
+            INSERT INTO {table_name} (external_id, content, embedding)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (external_id)
+            DO UPDATE SET content = EXCLUDED.content, embedding = EXCLUDED.embedding;
+            """,
+            (external_id, content, embedding)
+        )
+        self.conn.commit()
+
+    def insert_batch(self, items, table_name="embeddings"):
+        """
+        items: list of tuples (external_id: str, content: str, embedding: np.ndarray or list)
+        """
+        formatted_items = [
+            (external_id, content, embedding.tolist() if isinstance(embedding, np.ndarray) else embedding)
+            for external_id, content, embedding in items
+        ]
+        self.cur.executemany(
+            f"""
+            INSERT INTO {table_name} (external_id, content, embedding)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (external_id)
+            DO UPDATE SET content = EXCLUDED.content, embedding = EXCLUDED.embedding;
+            """,
+            formatted_items
+        )
+        self.conn.commit()
+
+    def query_similar(self, query_vector, table_name="embeddings", limit=5):
+        if isinstance(query_vector, np.ndarray):
+            query_vector = query_vector.tolist()
+        self.cur.execute(f"""
+            SELECT id, external_id, content, embedding
+            FROM {table_name}
+            ORDER BY embedding <=> %s
+            LIMIT %s;
+        """, (query_vector, limit))
+        return self.cur.fetchall()
+
+    def semantic_search(self, query_text, table_name="embeddings", limit=5):
+        if not self.llm_embed_fn:
+            raise ValueError("LLM embedding function not provided.")
+        query_vector = self.llm_embed_fn(query_text)
+        return self.query_similar(query_vector, table_name, limit)
+
+    def close(self):
+        self.cur.close()
+        self.conn.close()
+
+
+
+
+def local_llm_embed(text: str) -> np.ndarray:
+    return np.random.rand(3)
+
+db = VectorDBClient(
+    dbname="your_db",
+    user="your_user",
+    password="your_password",
+    llm_embed_fn=local_llm_embed
+)
+
+db.create_table(vector_dim=3)
+
+# Single upsert
+db.insert_embedding("Updated content", local_llm_embed("Updated content"), external_id="doc_001")
+
+# Batch upsert
+batch_items = [
+    ("doc_001", "Updated again", local_llm_embed("Updated again")),
+    ("doc_002", "New document", local_llm_embed("New document"))
+]
+db.insert_batch(batch_items)
+
+results = db.semantic_search("Find something like new document")
+for row in results:
+    print(row)
+
+db.close()
+
+
+
+
+Adapt for Hugging Face Transformers.
+
+Integrate with GGUF framework.
+
+Use Llama.cpp for embeddings.
+
+How to optimize vector search?
+
+Can you explain pgvector usage?
+
+Show me how to integrate with LLM.
+Add batch insert functionality.
+
+How to update existing records?
+
+Integrate with local LLM for search.
+
+Add upsert functionality.
+
+Implement deletion methods.
+
+Support streaming inserts.
+
+
+
+ am coding a chatbot. I use vectorize Postgres data base and local LLM.  I want  to use  psycopg not  psycopg2 . Write a need of code in Python like a class.  I  adapt for Hugging Face Transformers. I have a problem how to  set up a FastAPI app and optimize vector search. Give me a code in Python like a class 
+Copilot said:
+Copilot
+Thanks for the details! Here's a Python class that sets up a FastAPI chatbot backend using:
+
+psycopg (not psycopg2) for PostgreSQL vector search.
+Hugging Face Transformers for local LLM inference.
+FastAPI for serving the chatbot.
+Optimized vector search using pgvector.
+Let’s break this into a clean, modular class-based structure:
+
+
+
+How to set up PostgreSQL table?
+
+Can you help with Dockerizing this app?
+
+What about adding authentication?
+
+
+Can you help with Dockerizing this app?
+
+from fastapi import FastAPI, Request
+from pydantic import BaseModel
+from transformers import pipeline
+import psycopg
+import numpy as np
+
+# Define request schema
+class ChatRequest(BaseModel):
+    query: str
+
+class ChatBotApp:
+    def __init__(self, db_url: str, embedding_model: str, llm_model: str):
+        self.db_url = db_url
+        self.embedding_model_name = embedding_model
+        self.llm_model_name = llm_model
+        self.app = FastAPI()
+        self._setup_routes()
+        self._load_models()
+
+    def _load_models(self):
+        # Load embedding model (e.g., sentence-transformers)
+        self.embedder = pipeline("feature-extraction", model=self.embedding_model_name)
+        # Load local LLM model
+        self.llm = pipeline("text-generation", model=self.llm_model_name)
+
+    def _setup_routes(self):
+        @self.app.post("/chat")
+        async def chat(request: ChatRequest):
+            return await self.handle_chat(request.query)
+
+    async def handle_chat(self, query: str):
+        # Step 1: Embed the query
+        embedding = self._get_embedding(query)
+
+        # Step 2: Search vector DB
+        context = self._search_similar_context(embedding)
+
+        # Step 3: Generate response
+        prompt = f"Context: {context}\n\nUser: {query}\nBot:"
+        response = self.llm(prompt, max_new_tokens=200)[0]["generated_text"]
+        return {"response": response}
+
+    def _get_embedding(self, text: str):
+        # Convert to vector (mean pooling)
+        vectors = self.embedder(text)
+        return np.mean(vectors[0], axis=0).tolist()
+
+    def _search_similar_context(self, embedding: list, top_k: int = 5):
+        with psycopg.connect(self.db_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT content
+                    FROM documents
+                    ORDER BY embedding <-> %s
+                    LIMIT %s;
+                """, (embedding, top_k))
+                results = cur.fetchall()
+        return " ".join([r[0] for r in results])
+
+    def run(self):
+        import uvicorn
+        uvicorn.run(self.app, host="0.0.0.0", port=8000)
+
+
+
+pip install fastapi uvicorn psycopg transformers nump
+
+
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE TABLE documents (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    embedding VECTOR(768)  -- or whatever your model's dimension is
+);
+
+if __name__ == "__main__":
+    bot = ChatBotApp(
+        db_url="postgresql://user:password@localhost/dbname",
+        embedding_model="sentence-transformers/all-MiniLM-L6-v2",
+        llm_model="mistralai/Mistral-7B-Instruct-v0.1"
+    )
+    bot.run()
+
+
+
+-----
+from fastapi import FastAPI
+from pydantic import BaseModel
+from transformers import pipeline
+import psycopg
+import numpy as np
+
+class ChatRequest(BaseModel):
+    query: str
+
+class RAGChatBot:
+    def __init__(self, db_url: str, embedding_model: str, llm_model: str, vector_dim: int = 384):
+        self.db_url = db_url
+        self.embedding_model_name = embedding_model
+        self.llm_model_name = llm_model
+        self.vector_dim = vector_dim
+        self.app = FastAPI()
+        self._setup_routes()
+        self._load_models()
+
+    def _load_models(self):
+        self.embedder = pipeline("feature-extraction", model=self.embedding_model_name)
+        self.llm = pipeline("text-generation", model=self.llm_model_name)
+
+    def _setup_routes(self):
+        @self.app.post("/chat")
+        async def chat(request: ChatRequest):
+            return await self.handle_chat(request.query)
+
+    async def handle_chat(self, query: str):
+        embedding = self._get_embedding(query)
+        context = self._retrieve_context(embedding)
+        prompt = self._build_prompt(query, context)
+        response = self._generate_response(prompt)
+        return {"response": response, "context": context}
+
+    def _get_embedding(self, text: str) -> list:
+        vectors = self.embedder(text)
+        return np.mean(vectors[0], axis=0).tolist()
+
+    def _retrieve_context(self, embedding: list, top_k: int = 5) -> str:
+        with psycopg.connect(self.db_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT content
+                    FROM documents
+                    ORDER BY embedding <-> %s
+                    LIMIT %s;
+                """, (embedding, top_k))
+                results = cur.fetchall()
+        return "\n".join([r[0] for r in results])
+
+    def _build_prompt(self, query: str, context: str) -> str:
+        return f"""You are a helpful assistant. Use the following context to answer the question.
+
+Context:
+{context}
+
+Question: {query}
+Answer:"""
+
+    def _generate_response(self, prompt: str) -> str:
+        output = self.llm(prompt, max_new_tokens=200, do_sample=True)
+        return output[0]["generated_text"].split("Answer:")[-1].strip()
+
+    def run(self):
+        import uvicorn
+        uvicorn.run(self.app, host="0.0.0.0", port=8000)
+
+
+
+
+pip install fastapi uvicorn sse-starlette transformers numpy psycopg
+
+
+from fastapi import FastAPI, Request
+from sse_starlette.sse import EventSourceResponse
+from pydantic import BaseModel
+from transformers import pipeline
+import psycopg
+import numpy as np
+import asyncio
+
+class ChatRequest(BaseModel):
+    query: str
+
+class RAGChatBotStreaming:
+    def __init__(self, db_url: str, embedding_model: str, llm_model: str, vector_dim: int = 384):
+        self.db_url = db_url
+        self.embedding_model_name = embedding_model
+        self.llm_model_name = llm_model
+        self.vector_dim = vector_dim
+        self.app = FastAPI()
+        self._setup_routes()
+        self._load_models()
+
+    def _load_models(self):
+        self.embedder = pipeline("feature-extraction", model=self.embedding_model_name)
+        self.llm = pipeline("text-generation", model=self.llm_model_name)
+
+    def _setup_routes(self):
+        @self.app.post("/chat-stream")
+        async def chat_stream(request: Request):
+            data = await request.json()
+            query = data["query"]
+            return EventSourceResponse(self.stream_response(query))
+
+    async def stream_response(self, query: str):
+        embedding = self._get_embedding(query)
+        context = self._retrieve_context(embedding)
+        prompt = self._build_prompt(query, context)
+
+        # Generate response in chunks
+        output = self.llm(prompt, max_new_tokens=200, return_full_text=False)[0]["generated_text"]
+        for word in output.split():
+            yield {"data": word}
+            await asyncio.sleep(0.05)  # simulate streaming delay
+    def _get_embedding(self, text: str) -> list:
+        vectors = self.embedder(text)
+        return np.mean(vectors[0], axis=0).tolist()
+
+    def _retrieve_context(self, embedding: list, top_k: int = 5) -> str:
+        with psycopg.connect(self.db_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT content
+                    FROM documents
+                    ORDER BY embedding <-> %s
+                    LIMIT %s;
+                """, (embedding, top_k))
+                results = cur.fetchall()
+        return "\n".join([r[0] for r in results])
+
+    def _build_prompt(self, query: str, context: str) -> str:
+        return f"""You are a helpful assistant. Use the following context to answer the question.
+
+Context:
+{context}
+
+Question: {query}
+Answer:"""
+
+    def run(self):
+        import uvicorn
+        uvicorn.run(self.app, host="0.0.0.0", port=8000)
+
+
+
+
+----------------
+
+
+To use llama.cpp for generating embeddings in your Python-based chatbot (especially for RAG), you can integrate it via the llama-cpp-python bindings or run it as a local server. Here's a complete guide based on the latest documentation and examples:
+
+✅ Option 1: Use llama-cpp-python in Python
+1. Install llama-cpp-python
+pip install llama-cpp-python
+
+from llama_cpp import Llama
+import numpy as np
+
+# Load the model
+llm = Llama(
+    model_path="path/to/model.gguf",
+    embedding=True,
+    n_ctx=2048,
+    n_batch=512,
+    n_gpu_layers=64,  # adjust based on your GPU
+    verbose=True
+)
+
+# Get embedding
+def get_text_embedding(text: str) -> np.ndarray:
+    return np.array(llm.embed(text))
+
+git clone https://github.com/ggerganov/llama.cpp
+cd llama.cpp
+make -j  # or LLAMA_CUDA=1 make -j for GPU
+
+# Run server with embedding support
+./llama-server -m model.gguf --embeddings --port 8080 --host 0.0.0.0
+curl -X POST "http://localhost:8080/embedding" \
+  --data '{"content":"your text here"}'
+import requests
+import numpy as np
+
+class LlamaCppEmbedder:
+    def __init__(self, server_url="http://localhost:8080/embedding"):
+        self.server_url = server_url
+
+    def get_embedding(self, text: str) -> list:
+        response = requests.post(self.server_url, json={"content": text})
+        embedding = response.json().get("embedding", [])
+        return embedding
+
+
+pip install huggingface_hub
+from huggingface_hub import snapshot_download
+
+model_id = "microsoft/Phi-3-mini-128k-instruct"  # Replace with your model
+snapshot_download(repo_id=model_id, local_dir="phi3")
+git clone https://github.com/ggerganov/llama.cpp
+cd llama.cpp
+pip install -r requirements.txt
+
+python convert.py phi3 \
+  --outfile phi3.gguf \
+  --outtype q8_0  # or f16, f32, q4_k, etc.
+./build/bin/quantize phi3.gguf phi3-q4_k.gguf q4_k
+
+https://github.com/ggml-org/llama.cpp/discussions/2948
+https://www.geeksforgeeks.org/machine-learning/how-to-convert-any-huggingface-model-to-gguf-file-format/
