@@ -283,8 +283,6 @@ class TaxRAGPipeline:
         return answer.lower().strip(), latency
 
     async def embed_answer(self, text: str) -> List[float]:
-
-
         return await asyncio.to_thread(lambda: self.embedder.encode(text, normalize_embeddings=True, show_progress_bar = False).tolist())
 
     async def process_context(self, context_row: Dict[str, Any]) -> Dict[str, Any]:
