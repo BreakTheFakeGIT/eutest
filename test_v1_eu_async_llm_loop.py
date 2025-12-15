@@ -11,7 +11,7 @@ from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from src.utils.text_cleaner import pipeline_process, extract_fact_q
-from src.prompts.prompt_taxes import get_questions, get_prompt
+from src.prompts.prompt_taxes_xa import get_questions, get_prompt
 import src.utils.logger as logger_utils
 from dotenv import load_dotenv
 load_dotenv()
@@ -50,84 +50,63 @@ def to_pgvector_literal(vec: List[float]) -> str:
 def now_ms() -> int:
     return int(time.perf_counter() * 1000)
 
-def split_range_into_intervals(min_val: int,
-                               max_val: int,
-                               interval_size: int,
-                               reverse_order: bool = False) -> list[tuple[int, int]]:
-    """
-    Splits an integer range [min_val, max_val] into a list of fixed-size intervals (tuples of begin and end).
-    """
-    if min_val >= max_val:
-        raise ValueError("min_val must be strictly less than max_val.")
-    if interval_size <= 0:
-        raise ValueError("interval_size must be a positive integer.")
-
-    intervals = []
-    current_start = min_val
-
-    while current_start <= max_val:
-        current_end = current_start + interval_size
-
-        if current_end > max_val + 1:
-            current_end = max_val + 1
-        if current_start < max_val + 1:
-            intervals.append((current_start, current_end))
-        current_start = current_end
-
-    if reverse_order:
-        intervals.reverse()
-    return intervals
-
-
-def is_empty_or_special(answer: str) -> bool:
+def is_empty_or_special(text: str) -> int:
+    # Remove phrases
+    q_idx = text.find("brak info")
+    if q_idx > 0:
+        return 1
     _pattern = re.compile(r'^\s*(?:\w+\s*:\s*)?(?:brak info\w+|nie dot\w+)[\.\:]*\s*$',re.IGNORECASE)
-    #TODO
-    int(_pattern.match(answer or ""))
-    return 1
+    if bool(_pattern.match(text or '')):
+        return 2
+    return 0
 
-# -----------------------------
-# Tax-type question bank (10 per type)
-# -----------------------------
-def questions_for_tax_type(tax_type: str) -> List[str]:
-    # Customize per your domain; ensuring 10 questions per context
-    base = tax_type.lower()
-    return [
-        f"{base}: W punktach, wymień 10 słów kluczowych dotyczących podatku?",
-        f"{base}: W 5 punktach, wymień artykuły, przepisy wskazane w tekście?",
-        f"{base}: W 3 zdaniach, podsumuj fragment tekstu?",
-        f"{base}: W 1 zdaniu kim jest wnisoksowdawca: osobą fizyczną, jednostką samorządu terytorialnego (gmina, powiat, województwo), spółką, czy innym podmiotem (np. stowarzyszenie, spółdzielnia itp.)?",
-        f"{base}: W 1 zdaniu, czy wsnioskodawca korzysta ze zwolnienia, odliczenia lub ulg?"
-    ]
 
+def split_by_question_czy_numbered(text: str) -> List[str]:
+    """
+    Split text sequentially by the first occurrences
+    """
+    result = ["", "", "", ""]
+
+    # 1) Split by first "?"
+    q_idx = text.find("?")
+    if q_idx == -1:
+        result[0] = text.strip()
+        return result
+    result[0] = text[:q_idx].strip()
+    rest = text[q_idx + 1:]
+
+    # 2) Split by first "czy" (case-insensitive, as a separate word)
+    m_czy = re.search(r"\bczy\b", rest, flags=re.IGNORECASE)
+    if not m_czy:
+        result[1] = rest.strip()
+        return result
+    result[1] = rest[:m_czy.start()].strip()
+    rest2 = rest[m_czy.end():]
+
+    # 3) Split by first numbered-list marker: space + digits + '.' + space
+    m_num = re.search(r"\s\d+\.\s", rest2)
+    if not m_num:
+        result[2] = rest2.strip()
+        return result
+
+    result[2] = rest2[:m_num.start()].strip()
+    result[3] = rest2[m_num.end():].strip()
+    return result
 
 # -----------------------------
 # Prompt template for LLMs
 # -----------------------------
-# QA_PROMPT = ChatPromptTemplate.from_messages([
-#     ("system", "Jesteś ekspertem podatkowym. Odpowidaj krótko i zrozumiale. Nie proponuj. Pomiń pytania w odpowiedzi."),
-#     ("user",
-#      "Fragment wniosku: \n{context}\n\n"
-#      "Pytanie: \n{question}\n\n"
-#      "Wypunktuj odpowiedź na pytanie bazując wyłącznie na powyższym fragmencie wniosku. "
-#      "Jeśli nie znasz odpowiedzi, napisz krótko: ' brak informacji '. "
-#     ),
-# ])
 
 QA_PROMPT = ChatPromptTemplate.from_messages([
     ("system", "{system}"),
     ("user",
      "Fragment wniosku \n{context}\n\n"
      "Pytanie \n{question}\n\n"
-     "Wypunktuj odpowiedź na pytanie bazując wyłącznie na powyższym fragmencie wniosku. "
-     "Odpowidaj krótko i zrozumiale. "
-     "Nie proponuj. "
+     "Odpowidaj pełnym zdaniem na pytanie bazując wyłącznie na powyższym fragmencie wniosku. "
      "Pomiń pytania w odpowiedzi. "
      "Jeśli nie znasz odpowiedzi, napisz: ' brak informacji ' "
     ),
 ])
-
-
-
 
 
 def build_llms() -> Dict[str, ChatOllama]:
@@ -138,7 +117,7 @@ def build_llms() -> Dict[str, ChatOllama]:
 # Chunking
 # -----------------------------
 def splitter_chunk_text(text: str,
-               chunk_size: int = 1750,
+               chunk_size: int = 2000,
                chunk_overlap: int = 200) -> List[str]:
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
@@ -148,8 +127,40 @@ def splitter_chunk_text(text: str,
     )
     chunks = splitter.split_text(text)
     chunks = [chunk for chunk in chunks if len(chunk)>50]
-    return chunks[:6]
+    return chunks[:5]
 
+
+# -----------------------------
+# Data batch
+# -----------------------------
+def fetch_ids_in_batches(conn, batch_size=10):
+    """
+    Fetch IDs from the given table, yielding batches (lists) of size `batch_size`.
+    Uses a server-side cursor for memory efficiency on large tables.
+    """
+    with conn.cursor(name="ids_cursor") as cur:  # server-side cursor
+        cur.execute(f"""
+                    SELECT id_informacji
+                    FROM public.interpretacje AS ta
+                    WHERE True
+                        AND kategoria_informacji = 1
+                        AND szablonid IN (1,2)
+                        AND typ_podatku IN ('vat','pit','cit','pcc','psd',
+                            'akcyza','op','gry','malpki','spw','pt','pkop',
+                            'spdet','fin','cukier','wip','globe','nip','inne')
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM public.qa_results AS qa 
+                            WHERE qa.text_id = ta.id_informacji)
+                    ORDER BY id_informacji DESC ;""")
+        
+        while True:
+            rows = cur.fetchmany(batch_size)
+            if not rows:
+                break
+            # rows is a list of tuples, e.g. [(1,), (2,), ...]
+            batch = [row[0] for row in rows]
+            yield batch
 
 # -----------------------------
 # SQL Query
@@ -167,6 +178,9 @@ FROM public.interpretacje AS ta
 WHERE True
     AND kategoria_informacji = 1
     AND szablonid IN (1,2)
+    AND typ_podatku IN ('vat','pit','cit','pcc','psd',
+    'akcyza','op','gry','malpki','spw','pt','pkop',
+    'spdet','fin','cukier','wip','globe','nip','inne')
     AND NOT EXISTS (
         SELECT 1
         FROM public.qa_results AS qa 
@@ -178,11 +192,13 @@ WHERE True
 # Data access
 # -----------------------------
 
-async def fetch_texts_batch(sql: str = query_sql, limit: int = 10, tax_type: str | None = None, is_batch: bool = False, id_limit_down: int = 0, id_limit_up: int = 10000000) -> List[Dict[str, Any]]:
+
+async def fetch_texts_batch(sql: str = query_sql, limit: int = 10, tax_type: str | None = None, is_batch: bool = False, ids_list: List[int] | None=None) -> List[Dict[str, Any]]:
     params: Tuple[Any, ...] = ()
     if is_batch:
-        sql += " AND id_informacji> %s AND id_informacji <= %s"
-        params = (id_limit_down, id_limit_up,)
+        placeholders = ", ".join(["%s"] * len(ids_list))
+        sql += f" AND id_informacji IN ({placeholders}) "
+        params = (ids_list,)
     if tax_type:
         sql += " AND typ_podatku = %s"
         params = (tax_type,)
@@ -222,16 +238,16 @@ async def insert_qa_results(conn: psycopg.AsyncConnection,
         return new_id
 
 async def insert_answer_embeddings(conn: psycopg.AsyncConnection,
-                                qa_result_id: int, text_id: int, tax_type: str,
+                                qa_results_id: int, text_id: int, tax_type: str,
                                 question_id: int, show_in_chat: Dict[str,Any], is_excluded: int, type_text: str,
                                 vec: List[float]) -> None:
     sql = """
-    INSERT INTO answer_embeddings (qa_result_id, text_id, tax_type, question_id, show_in_chat, is_excluded, type_text, embedding)
+    INSERT INTO answer_embeddings (qa_results_id, text_id, tax_type, question_id, show_in_chat, is_excluded, type_text, embedding)
     VALUES (%s, %s,%s, %s,%s, %s, %s,%s::vector)
     """
     literal = to_pgvector_literal(vec)
     async with conn.cursor() as cur:
-        await cur.execute(sql, (qa_result_id, text_id, tax_type, question_id, show_in_chat, is_excluded, type_text, literal))
+        await cur.execute(sql, (qa_results_id, text_id, tax_type, question_id, show_in_chat, is_excluded, type_text, literal))
 
 
 async def insert_stat_results(conn: psycopg.AsyncConnection,
@@ -316,7 +332,8 @@ class TaxRAGPipeline:
 
         answer = await asyncio.to_thread(_invoke)
         latency = now_ms() - start
-        return answer.lower().strip(), latency
+        answer= answer.lower().replace("system: ","").replace("odpowiedź na twoje pytanie to: ","")
+        return answer.strip(), latency
 
     async def embed_answer(self, text: str) -> List[float]:
         return await asyncio.to_thread(lambda: self.embedder.encode(text, normalize_embeddings=True, show_progress_bar = False).tolist())
@@ -334,8 +351,8 @@ class TaxRAGPipeline:
 
         text_id = context_row["id_informacji"]
         tax_type = context_row["typ_podatku"]
-        _ , body = pipeline_process(context_row["tresc_interesariusz"])
         _ , topic =  pipeline_process(context_row["teza"])
+        _ , text_norm = pipeline_process(context_row["tresc_interesariusz"])
         show_in_chat = json.dumps({
             'id_informacji': text_id,
             'typ_podatku': tax_type,
@@ -351,11 +368,21 @@ class TaxRAGPipeline:
 
         # 3) Chunking
         t_chunk_start = time.perf_counter()
-        #text_norm_fact, text_norm_q = extract_fact_q(text)
+        print("="*10+' START TEXT '+"="*50)
+        text_norm_fact, text_norm_q = extract_fact_q(text=text_norm)
+        if text_norm_q:
+            text_norm_fact = ' '.join([text_norm_fact,text_norm_q])
+            list_of_questions = split_by_question_czy_numbered(text=text_norm_q)
+            list_of_questions = [q for q  in list_of_questions if len(q) > 50]
+            #list_of_questions = [q.lower() for q  in text_norm_q.split('?') if len(q) > 50]
+            if list_of_questions:
+                #zip(['pytania']*len(list_of_questions), list_of_questions)
+                print(list_of_questions)
+                print(len(list_of_questions))
 
-        chunks = splitter_chunk_text(body)
+        print("="*10+' END TEXT '+"="*50)
+        chunks = splitter_chunk_text(text=text_norm_fact)
         timings["chunking_s"] = round(time.perf_counter() - t_chunk_start,3)
-
         results_count = 0
 
         # Pre-open a DB connection for this context to amortize
@@ -381,7 +408,11 @@ class TaxRAGPipeline:
                                 answer, llm_latency_ms = await self.llm_answer(system=system, model_name=model_name, context=chunk_text, question=question)
                             timings["llm_latency_s"] = round(llm_latency_ms/1000,3)
                             # 6a) Save QA result
-                            is_excluded = 0
+
+                            is_excluded = is_empty_or_special(text=answer)
+                            # if is_excluded==1:
+                            #     return 0
+
                             qa_id = await insert_qa_results(conn=conn,
                                                         text_id=text_id,
                                                         tax_type=tax_type,
@@ -396,8 +427,8 @@ class TaxRAGPipeline:
                                                         llm_latency_ms=llm_latency_ms)
                             if question_id == 1:
                                 vec_chunk = await self.embed_answer(chunk_text)
-                                await insert_answer_embeddings(conn=conn, 
-                                                              qa_result_id=qa_id,
+                                await insert_answer_embeddings(conn=conn,
+                                                              qa_results_id=qa_id,
                                                               text_id=text_id,
                                                               tax_type=tax_type,
                                                               question_id=question_id,
@@ -410,7 +441,7 @@ class TaxRAGPipeline:
                             # 4b/6b) Vectorize answer + save embedding
                             vec = await self.embed_answer(answer)
                             await insert_answer_embeddings(conn=conn, 
-                                                              qa_result_id=qa_id,
+                                                              qa_results_id=qa_id,
                                                               text_id=text_id,
                                                               tax_type=tax_type,
                                                               question_id=question_id,
@@ -454,8 +485,7 @@ class TaxRAGPipeline:
 async def process_batch(limit: int = 5, 
                         tax_type: str | None = None,
                         is_batch: bool = False,
-                        id_limit_down: int = 0,
-                        id_limit_up: int = 10000000
+                        ids_list: str | None=None
                         ) -> Dict[str, Any]:
     """
     1) Download batch of texts from DB
@@ -466,8 +496,7 @@ async def process_batch(limit: int = 5,
     rows = await fetch_texts_batch(limit=limit,
                                    tax_type=tax_type,
                                    is_batch=is_batch,
-                                   id_limit_down=id_limit_down,
-                                   id_limit_up=id_limit_up
+                                   ids_list = ids_list
                                    )
     t_fetch = round(time.perf_counter() - t_fetch_start,3)
 
@@ -479,7 +508,6 @@ async def process_batch(limit: int = 5,
     t_proc_start = time.perf_counter()
     contexts_results = await asyncio.gather(*contexts_tasks)
     t_proc = round(time.perf_counter() - t_proc_start,3)
-
     return {
         "fetched": len(rows),
         "timings": {"fetch_texts_batch_s": t_fetch, "contexts_results_s": t_proc},
@@ -491,26 +519,24 @@ async def process_batch(limit: int = 5,
 # -----------------------------
 if __name__ == "__main__":
     async def main():
-        limit=5
-        list_intervals = split_range_into_intervals(min_val=45000,
-                                                    max_val=650000,
-                                                    interval_size=limit,
-                                                    reverse_order= True)
+        limit=50
+        async with await psycopg.AsyncConnection(PG_DSN) as conn:
 
-        for id_limit_down, id_limit_up in list_intervals:
+
+        for batch_ids in fetch_ids_in_batches(conn=conn, batch_size=10):
+            print(batch_ids)
             try:
                 summary = await process_batch(limit = limit,
                                 tax_type=None,
-                                is_batch=False,
-                                id_limit_down=id_limit_down,
-                                id_limit_up=id_limit_up
+                                is_batch=True,
+                                ids_list = batch_ids
                                 )
                 print(json.dumps(summary, ensure_ascii=False, indent=2))
                 async with await psycopg.AsyncConnection.connect(PG_DSN) as conn:
                     await insert_stat_results(conn=conn,type_results='process_batch', results = json.dumps(summary, ensure_ascii=False))
             except Exception as e:
                 import traceback
-                logger.error(f'Proces batch: id_limit_down-{id_limit_down}, id_limit_up {id_limit_up}')
+                logger.error(f'Proces batch: {batch_ids}')
                 logger.error(traceback.print_tb(e.__traceback__))
                 continue
 
