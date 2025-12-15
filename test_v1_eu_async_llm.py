@@ -3,13 +3,14 @@ import time
 from typing import List, Dict, Any, Tuple
 import json
 import os
+import re
 import psycopg
 from psycopg.rows import dict_row
 from sentence_transformers import SentenceTransformer
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from src.utils.text_cleaner import pipeline_process #, extract_fact_q
+from src.utils.text_cleaner import pipeline_process, extract_fact_q
 from src.prompts.prompt_taxes import get_questions, get_prompt
 import src.utils.logger as logger_utils
 from dotenv import load_dotenv
@@ -49,49 +50,60 @@ def to_pgvector_literal(vec: List[float]) -> str:
 def now_ms() -> int:
     return int(time.perf_counter() * 1000)
 
-# -----------------------------
-# Tax-type question bank (10 per type)
-# -----------------------------
-def questions_for_tax_type(tax_type: str) -> List[str]:
-    # Customize per your domain; ensuring 10 questions per context
-    base = tax_type.lower()
-    return [
-        f"{base}: W punktach, wymień 10 słów kluczowych dotyczących podatku?",
-        f"{base}: W 5 punktach, wymień artykuły, przepisy wskazane w tekście?",
-        f"{base}: W 3 zdaniach, podsumuj fragment tekstu?",
-        f"{base}: W 1 zdaniu kim jest wnisoksowdawca: osobą fizyczną, jednostką samorządu terytorialnego (gmina, powiat, województwo), spółką, czy innym podmiotem (np. stowarzyszenie, spółdzielnia itp.)?",
-        f"{base}: W 1 zdaniu, czy wsnioskodawca korzysta ze zwolnienia, odliczenia lub ulg?"
-    ]
+def is_empty_or_special(text: str) -> int:
+    # Remove phrases
+    _pattern = re.compile(r'^\s*(?:\w+\s*:\s*)?(?:brak infor\w+|\s+brak informacji\s+|nie dotycz\w+)[\.\:]*\s*$',re.IGNORECASE)
+    if bool(_pattern.match(text or '')):
+        return 1
+    return 0
+
+def split_by_question_czy_numbered(text: str) -> List[str]:
+    """
+    Split text sequentially by the first occurrences
+    """
+    result = ["", "", "", ""]
+
+    # 1) Split by first "?"
+    q_idx = text.find("?")
+    if q_idx == -1:
+        result[0] = text.strip()
+        return result
+    result[0] = text[:q_idx].strip()
+    rest = text[q_idx + 1:]
+
+    # 2) Split by first "czy" (case-insensitive, as a separate word)
+    m_czy = re.search(r"\bczy\b", rest, flags=re.IGNORECASE)
+    if not m_czy:
+        result[1] = rest.strip()
+        return result
+    result[1] = rest[:m_czy.start()].strip()
+    rest2 = rest[m_czy.end():]
+
+    # 3) Split by first numbered-list marker: space + digits + '.' + space
+    m_num = re.search(r"\s\d+\.\s", rest2)
+    if not m_num:
+        result[2] = rest2.strip()
+        return result
+
+    result[2] = rest2[:m_num.start()].strip()
+    result[3] = rest2[m_num.end():].strip()
+    result = [q for q  in result if len(q) > 50]
+    return result
 
 
 # -----------------------------
 # Prompt template for LLMs
 # -----------------------------
-# QA_PROMPT = ChatPromptTemplate.from_messages([
-#     ("system", "Jesteś ekspertem podatkowym. Odpowidaj krótko i zrozumiale. Nie proponuj. Pomiń pytania w odpowiedzi."),
-#     ("user",
-#      "Fragment wniosku: \n{context}\n\n"
-#      "Pytanie: \n{question}\n\n"
-#      "Wypunktuj odpowiedź na pytanie bazując wyłącznie na powyższym fragmencie wniosku. "
-#      "Jeśli nie znasz odpowiedzi, napisz krótko: ' brak informacji '. "
-#     ),
-# ])
-
 QA_PROMPT = ChatPromptTemplate.from_messages([
     ("system", "{system}"),
     ("user",
      "Fragment wniosku \n{context}\n\n"
      "Pytanie \n{question}\n\n"
-     "Wypunktuj odpowiedź na pytanie bazując wyłącznie na powyższym fragmencie wniosku. "
-     "Odpowidaj krótko i zrozumiale. "
-     "Nie proponuj. "
+     "Odpowidaj pełnym zdaniem na pytanie bazując wyłącznie na powyższym fragmencie wniosku. "
      "Pomiń pytania w odpowiedzi. "
      "Jeśli nie znasz odpowiedzi, napisz: ' brak informacji ' "
     ),
 ])
-
-
-
 
 
 def build_llms() -> Dict[str, ChatOllama]:
@@ -102,7 +114,7 @@ def build_llms() -> Dict[str, ChatOllama]:
 # Chunking
 # -----------------------------
 def splitter_chunk_text(text: str,
-               chunk_size: int = 1750,
+               chunk_size: int = 2000,
                chunk_overlap: int = 200) -> List[str]:
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
@@ -131,6 +143,9 @@ FROM public.interpretacje AS ta
 WHERE True
     AND kategoria_informacji = 1
     AND szablonid IN (1,2)
+    AND typ_podatku IN ('vat','pit','cit','pcc','psd',
+    'akcyza','op','gry','malpki','spw','pt','pkop',
+    'spdet','fin','cukier','wip','globe','nip','inne')
     AND NOT EXISTS (
         SELECT 1
         FROM public.qa_results AS qa 
@@ -186,16 +201,16 @@ async def insert_qa_results(conn: psycopg.AsyncConnection,
         return new_id
 
 async def insert_answer_embeddings(conn: psycopg.AsyncConnection,
-                                qa_result_id: int, text_id: int, tax_type: str,
+                                qa_results_id: int, text_id: int, tax_type: str,
                                 question_id: int, show_in_chat: Dict[str,Any], is_excluded: int, type_text: str,
                                 vec: List[float]) -> None:
     sql = """
-    INSERT INTO answer_embeddings (qa_result_id, text_id, tax_type, question_id, show_in_chat, is_excluded, type_text, embedding)
+    INSERT INTO answer_embeddings (qa_results_id, text_id, tax_type, question_id, show_in_chat, is_excluded, type_text, embedding)
     VALUES (%s, %s,%s, %s,%s, %s, %s,%s::vector)
     """
     literal = to_pgvector_literal(vec)
     async with conn.cursor() as cur:
-        await cur.execute(sql, (qa_result_id, text_id, tax_type, question_id, show_in_chat, is_excluded, type_text, literal))
+        await cur.execute(sql, (qa_results_id, text_id, tax_type, question_id, show_in_chat, is_excluded, type_text, literal))
 
 
 async def insert_stat_results(conn: psycopg.AsyncConnection,
@@ -280,7 +295,7 @@ class TaxRAGPipeline:
 
         answer = await asyncio.to_thread(_invoke)
         latency = now_ms() - start
-        return answer.lower().strip(), latency
+        return answer.lower(), latency
 
     async def embed_answer(self, text: str) -> List[float]:
         return await asyncio.to_thread(lambda: self.embedder.encode(text, normalize_embeddings=True, show_progress_bar = False).tolist())
@@ -298,8 +313,8 @@ class TaxRAGPipeline:
 
         text_id = context_row["id_informacji"]
         tax_type = context_row["typ_podatku"]
-        _ , body = pipeline_process(context_row["tresc_interesariusz"])
         _ , topic =  pipeline_process(context_row["teza"])
+        _ , text_norm = pipeline_process(context_row["tresc_interesariusz"])
         show_in_chat = json.dumps({
             'id_informacji': text_id,
             'typ_podatku': tax_type,
@@ -315,9 +330,9 @@ class TaxRAGPipeline:
 
         # 3) Chunking
         t_chunk_start = time.perf_counter()
-        chunks = splitter_chunk_text(body)
+        text_norm_fact, text_norm_q = extract_fact_q(text=text_norm)
+        chunks = splitter_chunk_text(text=text_norm_fact)
         timings["chunking_s"] = round(time.perf_counter() - t_chunk_start,3)
-
         results_count = 0
 
         # Pre-open a DB connection for this context to amortize
@@ -337,13 +352,17 @@ class TaxRAGPipeline:
                                 model_name=model_name,
                                 chunk_text=chunk_text,
                                 question=q,
-                                show_in_chat=show_in_chat
+                                show_in_chat=show_in_chat,
+                                text_norm_q = text_norm_q
                                 ):
                             async with self.llm_sem:
                                 answer, llm_latency_ms = await self.llm_answer(system=system, model_name=model_name, context=chunk_text, question=question)
                             timings["llm_latency_s"] = round(llm_latency_ms/1000,3)
                             # 6a) Save QA result
-                            is_excluded = 0
+
+                            is_excluded = is_empty_or_special(text=answer)
+                            # if is_excluded==1:
+                            #     return 0
                             qa_id = await insert_qa_results(conn=conn,
                                                         text_id=text_id,
                                                         tax_type=tax_type,
@@ -356,23 +375,10 @@ class TaxRAGPipeline:
                                                         answer=answer,
                                                         is_excluded=is_excluded,
                                                         llm_latency_ms=llm_latency_ms)
-                            if question_id == 1:
-                                vec_chunk = await self.embed_answer(chunk_text)
-                                await insert_answer_embeddings(conn=conn, 
-                                                              qa_result_id=qa_id,
-                                                              text_id=text_id,
-                                                              tax_type=tax_type,
-                                                              question_id=question_id,
-                                                              show_in_chat=show_in_chat,
-                                                              is_excluded=is_excluded,
-                                                              type_text='chunk',
-                                                              vec=vec_chunk)
-                                del vec_chunk
-
-                            # 4b/6b) Vectorize answer + save embedding
+                                                        # 4b/6b) Vectorize answer + save embedding
                             vec = await self.embed_answer(answer)
                             await insert_answer_embeddings(conn=conn, 
-                                                              qa_result_id=qa_id,
+                                                              qa_results_id=qa_id,
                                                               text_id=text_id,
                                                               tax_type=tax_type,
                                                               question_id=question_id,
@@ -381,6 +387,46 @@ class TaxRAGPipeline:
                                                               type_text='answer',
                                                               vec=vec)
                             del vec
+                            if question_id == 1:
+                                vec_chunk = await self.embed_answer(chunk_text)
+                                await insert_answer_embeddings(conn=conn,
+                                                              qa_results_id=qa_id,
+                                                              text_id=text_id,
+                                                              tax_type=tax_type,
+                                                              question_id=question_id,
+                                                              show_in_chat=show_in_chat,
+                                                              is_excluded=is_excluded,
+                                                              type_text='chunk',
+                                                              vec=vec_chunk)
+                                del vec_chunk
+                            if question_id in (1,2,3):
+                                answer_lst = [q for q in answer.split('\n')]
+                                for answer_item in answer_lst:
+                                    vec_ans_item = await self.embed_answer(answer_item)
+                                    await insert_answer_embeddings(conn=conn,
+                                                                qa_results_id=qa_id,
+                                                                text_id=text_id,
+                                                                tax_type=tax_type,
+                                                                question_id=question_id,
+                                                                show_in_chat=show_in_chat,
+                                                                is_excluded=is_excluded,
+                                                                type_text=f'split_q{question_id}',
+                                                                vec=vec_ans_item)
+                                    del vec_ans_item
+                            if question_id == 1 and text_norm_q:
+                                list_of_questions = split_by_question_czy_numbered(text=text_norm_q)
+                                for q_item in list_of_questions:
+                                    vec_q_item = await self.embed_answer(q_item)
+                                    await insert_answer_embeddings(conn=conn,
+                                                                qa_results_id=qa_id,
+                                                                text_id=text_id,
+                                                                tax_type=tax_type,
+                                                                question_id=question_id,
+                                                                show_in_chat=show_in_chat,
+                                                                is_excluded=is_excluded,
+                                                                type_text=f'question',
+                                                                vec=vec_q_item)
+                                    del vec_q_item
                             return 1
 
                         tasks.append(one_call())
@@ -442,7 +488,7 @@ async def process_batch(limit: int = 5, tax_type: str | None = None) -> Dict[str
 # -----------------------------
 if __name__ == "__main__":
     async def main():
-        summary = await process_batch(limit=3, tax_type="vat")
+        summary = await process_batch(limit=100000, tax_type=None)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         async with await psycopg.AsyncConnection.connect(PG_DSN) as conn:
             await insert_stat_results(conn=conn,type_results='process_batch', results = json.dumps(summary, ensure_ascii=False))
@@ -452,7 +498,7 @@ if __name__ == "__main__":
         # hits = await pipeline.retrieve("Stawki VAT dla usług elektronicznych", top_k=5, tax_type="vat")
         # print("\nTop-5 RAG hits:")
         # for h in hits:
-        #     print(f"- QA#{h['qa_result_id']} (model={h['model_name']}, dist={h['distance']:.4f})")
+        #     print(f"- QA#{h['qa_results_id']} (model={h['model_name']}, dist={h['distance']:.4f})")
         #     print(f"  Q: {h['question']}\n  A: {h['answer'][:200]}...\n")
 
     asyncio.run(main())
