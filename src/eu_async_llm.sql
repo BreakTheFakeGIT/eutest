@@ -4,11 +4,11 @@
 -- qa_result_id BIGINT NOT NULL REFERENCES qa_results(id) !!!!!!!!!!!!!!
 
 DROP TABLE answer_embeddings
-DROP TABLE qa_results
+DROP TABLE qa_results --CASCADE
 DROP TABLE stat_results
 
 TRUNCATE TABLE answer_embeddings
-TRUNCATE TABLE qa_results
+TRUNCATE TABLE qa_results CASCADE
 TRUNCATE TABLE stat_results
 
 --DELETE FROM answer_embeddings
@@ -23,14 +23,15 @@ CREATE TABLE IF NOT EXISTS stat_results (
   id BIGSERIAL PRIMARY KEY,
   type_results TEXT NOT NULL, -- a piece of python code
   results JSON NOT NULL, -- in general timings in seconds !!! (_s)
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
 
 -------------------------------------------------------------------------
 -- QA results per chunk/question/model
 CREATE TABLE IF NOT EXISTS qa_results (
-  id BIGSERIAL PRIMARY KEY,
+  id BIGSERIAL NOT NULL PRIMARY KEY,
   text_id INTEGER NOT NULL, -- id_informacji
   tax_type TEXT NOT NULL,
   chunk_id SMALLINT NOT NULL,
@@ -42,14 +43,15 @@ CREATE TABLE IF NOT EXISTS qa_results (
   answer TEXT NOT NULL, 
   is_excluded SMALLINT NOT NULL, 
   llm_latency_ms INTEGER NOT NULL, -- timing in milliseconds !!! (_ms)
-  created_at TIMESTAMPTZ DEFAULT NOW()  
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL 
 );
 
 -------------------------------------------------------------------------
 -- Embeddings of answers for retrieval/RAG
 CREATE TABLE IF NOT EXISTS answer_embeddings (
-  id BIGSERIAL PRIMARY KEY,
-  qa_result_id BIGINT NOT NULL REFERENCES qa_results(id),
+  id BIGSERIAL NOT NULL PRIMARY KEY,
+  qa_results_id BIGINT NOT NULL REFERENCES qa_results(id) ON DELETE CASCADE,
   text_id INTEGER NOT NULL,
   tax_type TEXT NOT NULL,
   question_id SMALLINT NOT NULL,
@@ -57,7 +59,8 @@ CREATE TABLE IF NOT EXISTS answer_embeddings (
   is_excluded SMALLINT NOT NULL,
   type_text TEXT NOT NULL,
   embedding VECTOR(1024) NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
 -------------------------------------------------------------------------
@@ -78,5 +81,14 @@ SELECT * FROM stat_results
 {"text_id": 669788, "tax_type": "vat", "chunks": 6, "questions_per_context": 5, "models": ["hf.co/NikolayKozloff/Llama-PLLuM-8B-instruct-Q8_0-GGUF:Q8_0"], "qa_results_saved": 30, "timings": {"chunking_s": 0.0011457977816462517, "llm_latency_s": 5.132, "qa_llm_s": 31.062264129985124, "total_s": 31.129930967930704}
 }]}
 -------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
 
 
