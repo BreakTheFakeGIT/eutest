@@ -42,9 +42,8 @@ EMBED_DIM = 1024
 # 'hf.co/BMarcin/Llama-PLLuM-70B-chat-GGUF:Q4_K_M',
 # 'hf.co/pswitala/pllum-8b-instruct-q5_k_m_gguf:Q5_K_M',
 #  'hf.co/Nondzu/PLLuM-8x7B-chat-GGUF:Q8_0'
-LLM_MODELS = ['hf.co/SpeakLeash/Bielik-4.5B-v3.0-Instruct-GGUF:Q8_0',
-              'hf.co/NikolayKozloff/Llama-PLLuM-8B-instruct-Q8_0-GGUF:Q8_0',
-              ]  # rename to your local tags if needed
+#'hf.co/NikolayKozloff/Llama-PLLuM-8B-instruct-Q8_0-GGUF:Q8_0',
+LLM_MODELS = ['hf.co/SpeakLeash/Bielik-4.5B-v3.0-Instruct-GGUF:Q8_0']  # rename to your local tags if needed
   # rename to your local tags if needed
 
 # Concurrency controls
@@ -58,8 +57,8 @@ TABLE_ANSWER_EMBEDDINGS_QA = 'answer_embeddings_qa_test'
 TABLE_ANSWER_EMBEDDINGS_SA = 'answer_embeddings_sa_test'
 TABLE_STAT_RESULTS = 'stat_results_test'
 
-CHUNK_SIZE = 1500
-CHUNK_OVERLAP = 150
+CHUNK_SIZE = 2000
+CHUNK_OVERLAP = 200
 
 # -----------------------------
 # Helpers
@@ -76,6 +75,7 @@ def is_empty_or_special(text: str) -> int:
     # if bool(_pattern.match(text or '')):
     #     return 1
     phrases = ['brak informacji',
+               '**brak informacji**',
                'nie ma wystarczających',
                'nie można',
                'nie jest możliwe',
@@ -93,21 +93,6 @@ def is_empty_or_special(text: str) -> int:
         return 0
 
 
-def split_by_numbered_question_czy(text: str) -> List[str]:
-    text = text[:4420]
-    parts = re.split(r'\d+\.\s*', text)
-    if len(parts)>1:
-        return parts
-    parts = re.split(r'\?\s*', text)
-    if len(parts)>1:
-        return parts
-    parts = re.split(r'\bczy\s*', text)
-    if len(parts)>1:
-        return parts
-    return [text]
-
-
-# -----------------------------
 # Prompt template for LLMs
 # -----------------------------
 QA_PROMPT = ChatPromptTemplate.from_messages([
@@ -116,8 +101,8 @@ QA_PROMPT = ChatPromptTemplate.from_messages([
      "Fragment wniosku \n{context}\n\n"
      "Pytanie \n{question}\n\n"
      "Odpowidaj krótko, rzeczowo i pełnym zdaniem, bazując wyłącznie na powyższym fragmencie wniosku. "
-     "Nie sugeruj oraz pomiń pytania w odpowiedzi."
-     "Jeśli nie znasz odpowiedzi napisz: ' brak informacji ' "
+     "Nie sugeruj, nie dopowiadaj oraz pomiń pytania w odpowiedzi."
+     "Jeśli nie znasz odpowiedzi napisz krótko: ' brak informacji ' "
     ),
 ])
 
@@ -140,7 +125,7 @@ def splitter_chunk_text(text: str,
     )
     chunks = splitter.split_text(text)
     chunks = [chunk for chunk in chunks if len(chunk)>50]
-    return chunks[:5]
+    return chunks[:4]
 
 # -----------------------------
 # Data access
@@ -391,6 +376,7 @@ class TaxRAGPipeline:
         # 3) Chunking
         t_chunk_start = time.perf_counter()
         text_norm_fact, text_norm_q = extract_fact_q(text=text_norm)
+        print(text_norm_q)
         chunks = splitter_chunk_text(text=text_norm_fact)
         if len(chunks)==0 or chunks is None:
             chunks = splitter_chunk_text(text=text_norm[:8840])
@@ -417,7 +403,7 @@ class TaxRAGPipeline:
                                 chunk_text=chunk_text,
                                 question=q,
                                 show_in_chat=show_in_chat,
-                                #text_norm_q=text_norm_q,
+                                text_norm_q=text_norm_q,
                                 keywords= keywords
                                 ):
                             async with self.llm_sem:
@@ -425,13 +411,13 @@ class TaxRAGPipeline:
                             timings["llm_latency_s"] = round(llm_latency_ms/1000,3)
                             # 6a) Save QA result
 
-                            answer = answer.replace('system:','')
-
                             is_excluded = is_empty_or_special(text=answer)
-                            if q_id>3 and is_excluded==1:
+                            if question_id>3 and is_excluded==1:
                                 return 0
 
+                            #################################################################
                             t_insert_start = time.perf_counter()
+                            answer = answer.replace('**odpowiedź:**','')
                             qa_id = await insert_qa_results(conn=conn,
                                                         schema_name=SCHEMA_NAME,
                                                         table_name=TABLE_QA_RESULTS,
@@ -463,23 +449,63 @@ class TaxRAGPipeline:
                                                             type_text='answer',
                                                             vector=vec_ans)
                                 del vec_ans
-                                vec_chunk = await self.embed_answer(text=chunk_text)
-                                await insert_answer_embeddings(conn=conn,
-                                                            schema_name=SCHEMA_NAME,
-                                                            table_name=TABLE_ANSWER_EMBEDDINGS_QA,
-                                                            qa_results_id=qa_id,
-                                                            text_id=text_id,
-                                                            tax_type=tax_type,
-                                                            question_id=question_id,
-                                                            show_in_chat=show_in_chat,
-                                                            is_excluded=is_excluded,
-                                                            type_text='chunk',
-                                                            vector=vec_chunk)
-                                del vec_chunk
+                                if question_id == 1:
+                                    vec_chunk = await self.embed_answer(text=chunk_text)
+                                    await insert_answer_embeddings(conn=conn,
+                                                                schema_name=SCHEMA_NAME,
+                                                                table_name=TABLE_ANSWER_EMBEDDINGS_QA,
+                                                                qa_results_id=qa_id,
+                                                                text_id=text_id,
+                                                                tax_type=tax_type,
+                                                                question_id=question_id,
+                                                                show_in_chat=show_in_chat,
+                                                                is_excluded=is_excluded,
+                                                                type_text='chunk',
+                                                                vector=vec_chunk)
+                                    del vec_chunk
 
-                                answer = split_by_numbered_question_czy(text=answer)
-                                logger.info(f'{answer}')
 
+                            #if question_id:
+
+                            parts = re.split(r'\d+\.\s', answer)
+                            answer_split = [p.strip() for p in parts if p.strip()]
+                            answer_split = [p for p in answer_split if len(p)>3]
+                            text_type = [f'keywords']*len(answer_split)
+                            for ans_split, txt_type in zip(answer_split,text_type):
+                                print(f'{ans_split} {txt_type}')
+                                try:
+                                    qa_id = await insert_qa_results(conn=conn,
+                                                        schema_name=SCHEMA_NAME,
+                                                        table_name=TABLE_QA_RESULTS,
+                                                        text_id=text_id,
+                                                        tax_type=tax_type,
+                                                        chunk_id=chunk_id,
+                                                        question_id=question_id,
+                                                        model_id=model_id,
+                                                        model_name=model_name,
+                                                        chunk_text=chunk_text,
+                                                        question=question,
+                                                        answer=ans_split,
+                                                        is_excluded=is_excluded,
+                                                        llm_latency_ms=llm_latency_ms,
+                                                        keywords=keywords
+                                                        )
+                                    vec_ans_split = await self.embed_answer(text=ans_split)
+                                    await insert_answer_embeddings(conn=conn,
+                                                                schema_name=SCHEMA_NAME,
+                                                                table_name=TABLE_ANSWER_EMBEDDINGS_QA,
+                                                                qa_results_id=qa_id,
+                                                                text_id=text_id,
+                                                                tax_type=tax_type,
+                                                                question_id=question_id,
+                                                                show_in_chat=show_in_chat,
+                                                                is_excluded=is_excluded,
+                                                                type_text=txt_type,
+                                                                vector=vec_ans_split)
+                                except Exception as e:
+                                    logger.error(f"Answer_split error: {e}")
+                                    continue
+                                    
 
                             #################################################################
                             timings["insert_s"] = round(time.perf_counter() - t_insert_start,3)
@@ -596,7 +622,7 @@ async def process_batch(limit: int=5, tax_type: str | None=None, batch_limit: in
 # -----------------------------
 if __name__ == "__main__":
     async def main():
-        summary = await process_batch(limit=5, tax_type=None, batch_limit=10)
+        summary = await process_batch(limit=10, tax_type=None, batch_limit=10)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         # async with await psycopg.AsyncConnection.connect(PG_DSN) as conn:
         #     await insert_stat_results(conn=conn,
