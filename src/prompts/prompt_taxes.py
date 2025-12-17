@@ -7,137 +7,137 @@ Area = Literal['vat','pit','cit','pcc','psd','akcyza',
 
 # ---------- MAIN ----------
 questions_main: List[str] = [
-    "W 5 punktach, wypisz 5 słów kluczowych.",
-    "W 5 punktach, wypisz artykuły, przepisy wskazane w tekście.",
-    "W 3 punktach, wypisz najważniejsze fragment tekstu."
+    "W punktach, wypisz 5 słów kluczowych skazane w tekście?",
+    "W punktach, wypisz artykuły, przepisy wskazane w tekście?",
+    "Podsumuj fragment tekstu?"
 ]
 
 # ---------- VAT ----------
 prompt_vat: str = "Jesteś ekspertem podatkowym w zakresie podatku VAT."
 questions_vat: List[str] = questions_main + [
-    "W 2 zdaniach, opisz, czy wnioskodawca jest osobą fizyczną, jednostką samorządu terytorialnego (gmina, powiat, województwo), spółką, czy innym podmiotem (np. stowarzyszenie, spółdzielnia itp.)?",
-    "W 2 zdaniach, opisz, zakres działalności gospodarczej prowadzonej przez wnioskodawcy?",
-    "W 2 zdaniach, opisz, czy przysługiwało prawo do odliczenia podatku VAT od przedmiotowej transakcji?",
-    "W 2 zdaniach, opisz, czy dostawa towaru lub świadczenia usługi, korzysta ze zwolnienia?",
-    "W 2 zdaniach, opisz, jakiej sprzedaży towaru albo jakich świadczenia usług dotyczy wniosek?",
-    "W 2 zdaniach, opisz, czy nieruchomość jest zabudowana bądź niezabudowana?",
-    "W 2 zdaniach, opisz, czy wartość sprzedaży w roku podatkowym przekroczy kwotę 200000 zł?",
-    "W 2 zdaniach, opisz, czy działalność jest opodatkowana podatkiem VAT, zwolniona, czy mieszana?",
-    "W 2 zdaniach, opisz, czy wnioskodawca jest czynnym, zarejestrowanym podatnikiem VAT albo jako podatnik VAT UE?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy eksportu, importu, dokonuje transakcji wewnątrzwspólnotowych (WNT, WDT), korzysta w związku z WDT/WNT/eksportem ze stawki podatku VAT w wysokości 0%?",
-    "W 2 zdaniach, opisz, na podstawie jakiej czynności prawnej wnioskodawca nabył towar?",
+    "Krótko opisz, czy wnioskodawca jest osobą fizyczną, jednostką samorządu terytorialnego (gmina, powiat, województwo), spółką, czy innym podmiotem (np. stowarzyszenie, spółdzielnia itp.)?",
+    "Krótko opisz, zakres działalności gospodarczej prowadzonej przez wnioskodawcy?",
+    "Krótko opisz, czy przysługiwało prawo do odliczenia podatku VAT od przedmiotowej transakcji?",
+    "Krótko opisz, czy dostawa towaru lub świadczenia usługi, korzysta ze zwolnienia?",
+    "Krótko opisz, jakiej sprzedaży towaru albo jakich świadczenia usług dotyczy wniosek?",
+    "Krótko opisz, czy nieruchomość jest zabudowana bądź niezabudowana?",
+    "Krótko opisz, czy wartość sprzedaży w roku podatkowym przekroczy kwotę 200000 zł?",
+    "Krótko opisz, czy działalność jest opodatkowana podatkiem VAT, zwolniona, czy mieszana?",
+    "Krótko opisz, czy wnioskodawca jest czynnym, zarejestrowanym podatnikiem VAT albo jako podatnik VAT UE?",
+    "Krótko opisz, czy wniosek dotyczy eksportu, importu, dokonuje transakcji wewnątrzwspólnotowych (WNT, WDT), korzysta w związku z WDT/WNT/eksportem ze stawki podatku VAT w wysokości 0%?",
+    "Krótko opisz, na podstawie jakiej czynności prawnej wnioskodawca nabył towar?",
 ]
 PROMPT_VAT: Dict[str, List[str] | str] = {"prompt": prompt_vat, "questions": questions_vat}
 
 # ---------- PIT ----------
 prompt_pit: str = "Jesteś ekspertem podatkowym w zakresie PIT."
 questions_pit: List[str] = questions_main + [
-    "W 2 zdaniach, opisz, czy wnioskodawca jest polskim rezydentem podatkowym oraz spełnia warunki rezydencji podatkowej tj.: miejsca zamieszkania, centrum interesów życiowych, długość pobytu?",
-    "W 2 zdaniach, opisz, z jakich wnioskodawca korzysta z ulg i odliczeń podatkowych np.: na dzieci, rehabilitacyjna, termomodernizacyjna, ulga na powrót, na zabytki, mieszkaniowa, dla seniora, na innowacje?",
-    "W 2 zdaniach, opisz, jaką wnioskodawca stosuje skalę podatkową (np.: podatek liniowy, ryczałt od przychodów ewidencjonowanych, karta podatkowa, podatek zryczałtowany)?",
-    "W 2 zdaniach, opisz, jakie jest źródło przychodu wnioskodawcy (np.: z pracy, emerytury, renty, działalności wykonywanej osobiście, pozarolniczej działalności gospodarczej, działalności rolniczej lub działów specjalnych, najmu, kapitałów pieniężnych, zbycia nieruchomości/ruchomości, z zagranicy)?",
-    "W 2 zdaniach, opisz, czy została wskazana forma opodatkowania dochodów/przychodów przez wnioskodawcę?",
-    "W 2 zdaniach, opisz, określ formę prawną spółki (np.: zoo, akcyjna, jawna, komandytowa, cywilna)?",
-    "W 2 zdaniach, opisz, czy wnioskodawca jest wspólnikiem spółki?",
-    "W 2 zdaniach, opisz, czy wnioskodawca rozlicza podatek we własnym imieniu, czy działa jako płatnik (np.: pracodawca, zleceniodawca), występuje jako podatnik czy jako płatnik?",
+    "Krótko opisz, czy wnioskodawca jest polskim rezydentem podatkowym oraz spełnia warunki rezydencji podatkowej tj.: miejsca zamieszkania, centrum interesów życiowych, długość pobytu?",
+    "Krótko opisz, z jakich wnioskodawca korzysta ulg i odliczeń podatkowych?", # np.: na dzieci, rehabilitacyjna, termomodernizacyjna, ulga na powrót, na zabytki, mieszkaniowa, dla seniora, na innowacje?",
+    "Krótko opisz, jaką wnioskodawca stosuje skalę podatkową np.: podatek liniowy, ryczałt od przychodów ewidencjonowanych, karta podatkowa, podatek zryczałtowany?",
+    "Krótko opisz, jakie jest źródło przychodu wnioskodawcy np.: z pracy, emerytury, renty, działalności wykonywanej osobiście, pozarolniczej działalności gospodarczej, działalności rolniczej lub działów specjalnych, najmu, kapitałów pieniężnych, zbycia nieruchomości/ruchomości, z zagranicy?",
+    "Krótko opisz, czy została wskazana forma opodatkowania dochodów/przychodów przez wnioskodawcę?",
+    "Krótko opisz, określ formę prawną spółki np.: zoo, akcyjna, jawna, komandytowa, cywilna?",
+    "Krótko opisz, czy wnioskodawca jest wspólnikiem spółki?",
+    "Krótko opisz, czy wnioskodawca rozlicza podatek we własnym imieniu, czy działa jako płatnik np.: pracodawca, zleceniodawca?",
 ]
 PROMPT_PIT: Dict[str, List[str] | str] = {"prompt": prompt_pit, "questions": questions_pit}
 
 # ---------- CIT ----------
 prompt_cit: str = "Jesteś ekspertem podatkowym w zakresie CIT."
 questions_cit: List[str] = questions_main + [
-    "W 2 zdaniach, opisz, czy wnioskodawca korzysta z ulg podatkowych (np.: ulga badawczo-rozwojowa, ulga IP Box, zwolnienie dochodów z tytułu decyzji o wsparciu)?",
-    "W 2 zdaniach, opisz, określ formę prawną spółki (np.: zoo, akcyjna, jawna, komandytowa, cywilna)?",
-    "W 2 zdaniach, opisz, czy została wskazana forma opodatkowania dochodów/przychodów (np.: opodatkowanie na zasadach ogólnych, ryczałt od dochodów spółek, podatek u źródła)?",
-    "W 2 zdaniach, opisz, czy wnioskodawca jest osobą fizyczną czy osobą prawną?",
-    "W 2 zdaniach, opisz, czy wnioskodawca podlega opodatkowaniu podatkiem dochodowym od osób prawnych?",
-    "W 2 zdaniach, opisz, czy wnioskodawca, jeśli posiada rezydencję podatkową w Polsce, podlega obowiązkowi podatkowemu od całości swoich dochodów bez względu na miejsce ich osiągania?\
-    Jeśli nie posiada rezydencji podatkowej w Polsce, podlega obowiązkowi podatkowemu od dochodów, które osiąga na terytorium Polski?",
-    "W 2 zdaniach, opisz, czy wnioskodawca występuje w charakterze podatnika czy płatnika?",
-    "W 3 punktach, opisz, jaki jest zakres działalności prowadzonej przez wnioskodawcę?"
+    "Krótko opisz, z jakich wnioskodawca korzysta z ulg podatkowych?", #np.: ulga badawczo-rozwojowa, ulga IP Box, zwolnienie dochodów z tytułu decyzji o wsparciu?",
+    "Krótko opisz, jaki jest zakres działalności prowadzonej przez wnioskodawcę?"
+    "Krótko opisz, określ formę prawną spółki np.: zoo, akcyjna, jawna, komandytowa, cywilna?",
+    "Krótko opisz, czy została wskazana forma opodatkowania dochodów/przychodów np.: opodatkowanie na zasadach ogólnych, ryczałt od dochodów spółek, podatek u źródła?",
+    "Krótko opisz, czy wnioskodawca jest osobą fizyczną czy osobą prawną?",
+    "Krótko opisz, czy wnioskodawca podlega opodatkowaniu podatkiem dochodowym od osób prawnych?",
+    "Krótko opisz, czy wnioskodawca występuje w charakterze podatnika czy płatnika?",
+    "Krótko opisz, czy wnioskodawca, jeśli posiada rezydencję podatkową w Polsce, podlega obowiązkowi podatkowemu od całości swoich dochodów bez względu na miejsce ich osiągania?",
+    "Krótko opisz, czy wnioskodawca, Jeśli nie posiada rezydencji podatkowej w Polsce, podlega obowiązkowi podatkowemu od dochodów, które osiąga na terytorium Polski?",
 ]
 PROMPT_CIT: Dict[str, List[str] | str] = {"prompt": prompt_cit, "questions": questions_cit}
 
 # ---------- PCC ----------
 prompt_pcc = "Jesteś ekspertem podatkowym specjalizującym się w podatku od czynności cywilnoprawnych (PCC)."
 questions_pcc = questions_main + [
-    "W 2 zdaniach, opisz, jakiej umowy dotyczy wniosek (np.: umowy sprzedaży, umowy zamiany, umowy pożyczki, umowy darowizny, umowy dożywocia, umowy o dział spadku, umowy o zniesienie współwłasności, ustanowienia hipoteki, ustanowienia odpłatnego użytkowania, ustanowienia odpłatnej służebności, umowy depozytu nieprawidłowego, umowy spółki)?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy umowy spółki/zmiany umowy spółki? Jakiego rodzaju spółki?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy zasady stand still?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy wniesienia wkładu/aportu do spółki? Jakiego rodzaju spółki?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy przekształcenia spółki? Jaka spółka będzie przekształcana, a jaką będzie po przekształceniu?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy orzeczenia sądu lub ugody?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy sprzedaży prawa własności/użytkowania wieczystego nieruchomości?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy nabycia prawa własności lokalu mieszkalnego stanowiącego odrębną nieruchomość, prawa własności budynku mieszkalnego jednorodzinnego, spółdzielczego własnościowe prawa do lokalu dotyczącego lokalu mieszkalnego albo domu jednorodzinnego? Jakim tytułem?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy gospodarstwa rolnego?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy postępowania egzekucyjnego?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy cash poolingu?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy sprzedaży przedsiębiorstwa lub zorganizowanej części przedsiębiorstwa?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy podziału spółki przez wydzielenie lub wyodrębnienie?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy walut obcych?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy złota dewizowego/złota inwestycyjnego?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy spłat lub dopłat?",
+    "Krótko opisz, jakiej umowy dotyczy wniosek np.: umowy sprzedaży, umowy zamiany, umowy pożyczki, umowy darowizny, umowy dożywocia, umowy o dział spadku, umowy o zniesienie współwłasności, ustanowienia hipoteki, ustanowienia odpłatnego użytkowania, ustanowienia odpłatnej służebności, umowy depozytu nieprawidłowego, umowy spółki?",
+    "Krótko opisz, czy wniosek dotyczy umowy spółki/zmiany umowy spółki? Jakiego rodzaju spółki?",
+    "Krótko opisz, czy wniosek dotyczy zasady stand still?",
+    "Krótko opisz, czy wniosek dotyczy wniesienia wkładu/aportu do spółki? Jakiego rodzaju spółki?",
+    "Krótko opisz, czy wniosek dotyczy przekształcenia spółki? Jaka spółka będzie przekształcana, a jaką będzie po przekształceniu?",
+    "Krótko opisz, czy wniosek dotyczy orzeczenia sądu lub ugody?",
+    "Krótko opisz, czy wniosek dotyczy sprzedaży prawa własności/użytkowania wieczystego nieruchomości?",
+    "Krótko opisz, czy wniosek dotyczy nabycia prawa własności lokalu mieszkalnego stanowiącego odrębną nieruchomość, prawa własności budynku mieszkalnego jednorodzinnego, spółdzielczego własnościowe prawa do lokalu dotyczącego lokalu mieszkalnego albo domu jednorodzinnego? Jakim tytułem?",
+    "Krótko opisz, czy wniosek dotyczy gospodarstwa rolnego?",
+    "Krótko opisz, czy wniosek dotyczy postępowania egzekucyjnego?",
+    "Krótko opisz, czy wniosek dotyczy cash poolingu?",
+    "Krótko opisz, czy wniosek dotyczy sprzedaży przedsiębiorstwa lub zorganizowanej części przedsiębiorstwa?",
+    "Krótko opisz, czy wniosek dotyczy podziału spółki przez wydzielenie lub wyodrębnienie?",
+    "Krótko opisz, czy wniosek dotyczy walut obcych?",
+    "Krótko opisz, czy wniosek dotyczy złota dewizowego/złota inwestycyjnego?",
+    "Krótko opisz, czy wniosek dotyczy spłat lub dopłat?",
 ]
 PROMPT_PCC = {"prompt": prompt_pcc, "questions": questions_pcc}
 
 # ---------- PSD ----------
 prompt_psd = "Jesteś ekspertem podatkowym specjalizującym się w podatku od spadków i darowizn."
 questions_psd = questions_main + [
-    "W 2 zdaniach, opisz, czy wniosek dotyczy dziedziczenia, zapisu zwykłego, dalszego zapisu, zapisu windykacyjnego, polecenia testamentowego; darowizny, polecenia darczyńcy; zasiedzenia; nieodpłatnego zniesienia współwłasności; zachowku; nieodpłatnej renty, nieodpłatnego użytkowania, nieodpłatnej służebności?",
-    "W 2 zdaniach, opisz, czy zostało wskazane, że był wydany akt poświadczenia dziedziczenia/ sądowe postanowienie o nabyciu spadku?",
-    "W 2 zdaniach, opisz, czy wnioskodawca otrzyma/nabędzie od: małżonka (żona, mąż); zstępnego (córka, syn, wnuczka, wnuk, prawnuczka, prawnuk); wstępnego (matka, ojciec, babcia, dziadek, prababcia, pradziadek); pasierbicy, pasierba; siostry; brata; macochy, ojczyma?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy nabycia prawa do wkładu oszczędnościowego na podstawie dyspozycji wkładem na wypadek śmierci lub nabycia jednostek uczestnictwa na podstawie dyspozycji uczestnika funduszu inwestycyjnego otwartego albo specjalistycznego funduszu inwestycyjnego otwartego na wypadek jego śmierci?",
-    "W 2 zdaniach, opisz, czy wnioskodawca ma obywatelstwo polskie lub kartę stałego pobytu w Polsce?",
-    "W 2 zdaniach, opisz, czy rzecz lub prawo majątkowe znajduje się na terytorium RP?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy nabycia innego państwa? Jakiego?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy gospodarstwa rolnego?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy ulgi mieszkaniowej?",
+    "Krótko opisz, czy wniosek dotyczy dziedziczenia, zapisu zwykłego, dalszego zapisu, zapisu windykacyjnego, polecenia testamentowego; darowizny, polecenia darczyńcy; zasiedzenia; nieodpłatnego zniesienia współwłasności; zachowku; nieodpłatnej renty, nieodpłatnego użytkowania, nieodpłatnej służebności?",
+    "Krótko opisz, czy zostało wskazane, że był wydany akt poświadczenia dziedziczenia/ sądowe postanowienie o nabyciu spadku?",
+    "Krótko opisz, czy wnioskodawca otrzyma/nabędzie od: małżonka (żona, mąż); zstępnego (córka, syn, wnuczka, wnuk, prawnuczka, prawnuk); wstępnego (matka, ojciec, babcia, dziadek, prababcia, pradziadek); pasierbicy, pasierba; siostry; brata; macochy, ojczyma?",
+    "Krótko opisz, czy wniosek dotyczy nabycia prawa do wkładu oszczędnościowego na podstawie dyspozycji wkładem na wypadek śmierci lub nabycia jednostek uczestnictwa na podstawie dyspozycji uczestnika funduszu inwestycyjnego otwartego albo specjalistycznego funduszu inwestycyjnego otwartego na wypadek jego śmierci?",
+    "Krótko opisz, czy wnioskodawca ma obywatelstwo polskie lub kartę stałego pobytu w Polsce?",
+    "Krótko opisz, czy rzecz lub prawo majątkowe znajduje się na terytorium RP?",
+    "Krótko opisz, czy wniosek dotyczy nabycia innego państwa? Jakiego?",
+    "Krótko opisz, czy wniosek dotyczy gospodarstwa rolnego?",
+    "Krótko opisz, czy wniosek dotyczy ulgi mieszkaniowej?",
 ]
 PROMPT_PSD = {"prompt": prompt_psd, "questions": questions_psd}
 
 # ---------- AKCYZA ----------
 prompt_akcyza = "Jesteś ekspertem podatkowym specjalizującym się w podatku akcyzowym."
 questions_akcyza = questions_main + [
-    "W 2 zdaniach, opisz, jakiego rodzaju wyrobu dotyczy wniosek: wyrobu energetycznego, paliwa silnikowe, gaz ziemny, energii elektrycznej, napoju alkoholowego, wyrobu tytoniowego, suszu tytoniowego, płynu do papierosów elektronicznych, wyrobu nowatorskiego, urządzenia do waporyzacji, zestawu części do urządzeń do waporyzacji, saszetek nikotynowych, innych wyrobów nikotynowych albo samochodu osobowego?",
-    "W 2 zdaniach, opisz, jaka jest klasyfikacja wyrobu akcyzowego albo samochodu osobowego w układzie odpowiadającym Nomenklaturze Scalonej (CN) albo rodzaj wyrobu akcyzowego?",
-    "W 2 zdaniach, opisz, jakiej czynności dokonuje Wnioskodawca: zakup na terenie Polski, nabycie wewnątrzwspólnotowe, sprzedaż, zużycie, użycie, import, produkcja?",
-    "W 2 zdaniach, opisz, czy przemieszczanie wyrobu odbywa się w lub poza procedurze zawieszenia poboru akcyzy?",
-    "W 2 zdaniach, opisz, czy wyrób jest opodatkowany zerową stawką akcyzy, inną niż zerowa stawkę akcyzy czy podlega zwolnieniu od podatku?",
-    "W 2 zdaniach, opisz, czy wnioskodawca jest producentem, importerem, eksporterem, dystrybutorem lub detalistą wyrobów akcyzowych?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy zwolnień lub obniżonych stawek akcyzy?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy procedur związanych z magazynowaniem, transportem, czy sprzedażą wyrobów akcyzowych?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy obowiązków sprawozdawczych lub ewidencyjnych związanych z podatkiem akcyzowym?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy sankcji lub kar związanych z naruszeniem przepisów akcyzowych?",
+    "Krótko opisz, jakiego rodzaju wyrobu dotyczy wniosek: wyrobu energetycznego, paliwa silnikowe, gaz ziemny, energii elektrycznej, napoju alkoholowego, wyrobu tytoniowego, suszu tytoniowego, płynu do papierosów elektronicznych, wyrobu nowatorskiego, urządzenia do waporyzacji, zestawu części do urządzeń do waporyzacji, saszetek nikotynowych, innych wyrobów nikotynowych albo samochodu osobowego?",
+    "Krótko opisz, jaka jest klasyfikacja wyrobu akcyzowego albo samochodu osobowego w układzie odpowiadającym Nomenklaturze Scalonej (CN) albo rodzaj wyrobu akcyzowego?",
+    "Krótko opisz, jakiej czynności dokonuje Wnioskodawca: zakup na terenie Polski, nabycie wewnątrzwspólnotowe, sprzedaż, zużycie, użycie, import, produkcja?",
+    "Krótko opisz, czy przemieszczanie wyrobu odbywa się w lub poza procedurze zawieszenia poboru akcyzy?",
+    "Krótko opisz, czy wyrób jest opodatkowany zerową stawką akcyzy, inną niż zerowa stawkę akcyzy czy podlega zwolnieniu od podatku?",
+    "Krótko opisz, czy wnioskodawca jest producentem, importerem, eksporterem, dystrybutorem lub detalistą wyrobów akcyzowych?",
+    "Krótko opisz, czy wniosek dotyczy zwolnień lub obniżonych stawek akcyzy?",
+    "Krótko opisz, czy wniosek dotyczy procedur związanych z magazynowaniem, transportem, czy sprzedażą wyrobów akcyzowych?",
+    "Krótko opisz, czy wniosek dotyczy obowiązków sprawozdawczych lub ewidencyjnych związanych z podatkiem akcyzowym?",
+    "Krótko opisz, czy wniosek dotyczy sankcji lub kar związanych z naruszeniem przepisów akcyzowych?",
 ]
 PROMPT_AKCYZA = {"prompt": prompt_akcyza, "questions": questions_akcyza}
 
 # ---------- ORDYNACJA PODATKOWA ----------
 prompt_op = "Jesteś ekspertem podatkowym specjalizującym się w ordynacji podatkowej."
 questions_op = questions_main + [
-    "W 2 zdaniach, opisz, czy wniosek dotyczy obowiązków podatkowych, praw podatników, procedur administracyjnych, kontroli podatkowej, odwołań i skarg, czy innych aspektów ordynacji podatkowej?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy e-deklaracji podatkowych? Jakiego rodzaju deklaracji (np. VAT, PIT, CIT, PCC)?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy terminów składania e-deklaracji, sposobu ich składania, czy problemów technicznych związanych z e-deklaracjami?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy ustawy o doręczeniach elektronicznych? Jakiego rodzaju doręczeń (np. decyzje administracyjne, wezwania, zawiadomienia)?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy procedur związanych z doręczeniami elektronicznymi, takich jak potwierdzenie odbioru, terminy doręczeń, czy problemy techniczne?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy sankcji lub kar związanych z naruszeniem przepisów ordynacji podatkowej lub ustawy o doręczeniach elektronicznych?",
+    "Krótko opisz, czy wniosek dotyczy obowiązków podatkowych, praw podatników, procedur administracyjnych, kontroli podatkowej, odwołań i skarg, czy innych aspektów ordynacji podatkowej?",
+    "Krótko opisz, czy wniosek dotyczy e-deklaracji podatkowych? Jakiego rodzaju deklaracji (np. VAT, PIT, CIT, PCC)?",
+    "Krótko opisz, czy wniosek dotyczy terminów składania e-deklaracji, sposobu ich składania, czy problemów technicznych związanych z e-deklaracjami?",
+    "Krótko opisz, czy wniosek dotyczy ustawy o doręczeniach elektronicznych? Jakiego rodzaju doręczeń (np. decyzje administracyjne, wezwania, zawiadomienia)?",
+    "Krótko opisz, czy wniosek dotyczy procedur związanych z doręczeniami elektronicznymi, takich jak potwierdzenie odbioru, terminy doręczeń, czy problemy techniczne?",
+    "Krótko opisz, czy wniosek dotyczy sankcji lub kar związanych z naruszeniem przepisów ordynacji podatkowej lub ustawy o doręczeniach elektronicznych?",
 ]
 PROMPT_OP = {"prompt": prompt_op, "questions": questions_op}
 
 # ---------- GRY HAZARDOWE ----------
 prompt_gry = "Jesteś ekspertem podatkowym specjalizującym się w grach hazardowych."
 questions_gry = questions_main + [
-    "W 2 zdaniach, opisz, czy wniosek dotyczy podatku od gier, opłaty za korzystanie z automatów do gier, czy innych aspektów podatkowych związanych z grami hazardowymi?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy organizatorów gier hazardowych, takich jak kasyna, salony gier, loterie, zakłady bukmacherskie?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy obowiązków podatkowych organizatorów gier hazardowych, takich jak rejestracja, ewidencja, raportowanie, czy płatności podatkowe?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy graczy, takich jak obowiązki podatkowe związane z wygranymi, zgłaszanie dochodów, czy ulgi podatkowe?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy sankcji lub kar związanych z naruszeniem przepisów podatkowych dotyczących gier hazardowych?",
+    "Krótko opisz, czy wniosek dotyczy podatku od gier, opłaty za korzystanie z automatów do gier, czy innych aspektów podatkowych związanych z grami hazardowymi?",
+    "Krótko opisz, czy wniosek dotyczy organizatorów gier hazardowych, takich jak kasyna, salony gier, loterie, zakłady bukmacherskie?",
+    "Krótko opisz, czy wniosek dotyczy obowiązków podatkowych organizatorów gier hazardowych, takich jak rejestracja, ewidencja, raportowanie, czy płatności podatkowe?",
+    "Krótko opisz, czy wniosek dotyczy graczy, takich jak obowiązki podatkowe związane z wygranymi, zgłaszanie dochodów, czy ulgi podatkowe?",
+    "Krótko opisz, czy wniosek dotyczy sankcji lub kar związanych z naruszeniem przepisów podatkowych dotyczących gier hazardowych?",
 ]
 PROMPT_GRY = {"prompt": prompt_gry, "questions": questions_gry}
 
 # ---------- MALPKI ----------
 prompt_malpki = "Jesteś ekspertem podatkowym specjalizującym się w wychowaniu w trzeźwości i przeciwdziałaniu alkoholizmowi."
 questions_malpki = questions_main + [
-    "W 2 zdaniach, opisz,  wnioskodawca sprzedaje napoje alkoholowe w opakowaniach jednostkowych o ilości nominalnej napoju nieprzekraczającej 300 ml?"
+    "Krótko opisz,  wnioskodawca sprzedaje napoje alkoholowe w opakowaniach jednostkowych o ilości nominalnej napoju nieprzekraczającej 300 ml?"
 ]
 PROMPT_MALPKI = {"prompt": prompt_malpki, "questions": questions_malpki}
 
@@ -169,19 +169,19 @@ PROMPT_FIN = {"prompt": prompt_fin, "questions": questions_fin}
 # ---------- CUKIER ----------
 prompt_cukier = "Jesteś ekspertem podatkowym specjalizującym się w zdrowiu publicznym."
 questions_cukier = questions_main + [
-    "W 2 zdaniach, opisz, zwróć uwagę na skład napoju, czy dotyczy napoju z dodatkiem cukrów, soków owocowych/warzywnych, substancji słodzących, kofeiny lub tauryny?",
-    "W 2 zdaniach, opisz, czy wnioskodawca jest podmiotem sprzedającym napoje do punktu sprzedaży detalicznej?",
-    "W 2 zdaniach, opisz, czy wnioskodawca prowadzi sprzedaż detaliczną napojów?",
-    "W 2 zdaniach, opisz, czy wnioskodawca jest zamawiającym napój u producenta?"
+    "Krótko opisz, zwróć uwagę na skład napoju, czy dotyczy napoju z dodatkiem cukrów, soków owocowych/warzywnych, substancji słodzących, kofeiny lub tauryny?",
+    "Krótko opisz, czy wnioskodawca jest podmiotem sprzedającym napoje do punktu sprzedaży detalicznej?",
+    "Krótko opisz, czy wnioskodawca prowadzi sprzedaż detaliczną napojów?",
+    "Krótko opisz, czy wnioskodawca jest zamawiającym napój u producenta?"
 ]
 PROMPT_CUKIER = {"prompt": prompt_cukier, "questions": questions_cukier}
 
 # ---------- WIP ----------
 prompt_wip = "Jesteś ekspertem podatkowym specjalizującym się w wymianie informacji podatkowych z innymi państwami."
 questions_wip = questions_main + [
-    "W 2 zdaniach, opisz, czy wniosek dotyczy automatycznej wymiany o rachunkach raportowanych?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy automatycznej wymiany informacji o sprzedawcach?",
-    "W 2 zdaniach, opisz, czy wniosek dotyczy automatycznej wymiany informacji podatkowych o jednostkach wchodzących w skład grupy podmiotów?"
+    "Krótko opisz, czy wniosek dotyczy automatycznej wymiany o rachunkach raportowanych?",
+    "Krótko opisz, czy wniosek dotyczy automatycznej wymiany informacji o sprzedawcach?",
+    "Krótko opisz, czy wniosek dotyczy automatycznej wymiany informacji podatkowych o jednostkach wchodzących w skład grupy podmiotów?"
 ]
 PROMPT_WIP = {"prompt": prompt_wip, "questions": questions_wip}
 
