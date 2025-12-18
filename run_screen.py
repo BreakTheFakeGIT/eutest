@@ -1,13 +1,12 @@
 import subprocess
-import time
 import sys
 
 def launch_app_with_restart():
     # --- Configuration ---
-    session_name = "llm_model_session"
+    session_name = "main_async_llm_bielik"
     # Use absolute paths for reliability
-    venv_activate = "/.venv/bin/activate"
-    script_to_run = "/eutest/main.py"
+    venv_activate = "/dane/eutest/.venv/bin/activate"
+    script_to_run = "/dane/eutest/main_async_llm_bielik.py"
     
     # --- The Restart Logic (Shell Loop) ---
     # This is the core change: 
