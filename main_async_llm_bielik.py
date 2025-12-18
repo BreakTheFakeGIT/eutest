@@ -138,7 +138,7 @@ async def fetch_texts_batch(limit: int=10,
         'spdet','fin','cukier','wip','globe','nip','inne')
         AND NOT EXISTS (
             SELECT 1
-            FROM public.qa_results AS qa 
+            FROM public.qa_results AS qa
             WHERE qa.text_id = ta.id_informacji
         )
         AND NOT EXISTS (
@@ -528,7 +528,7 @@ async def process_batch(limit: int=10, tax_type: str | None=None, batch_limit: i
 # -----------------------------
 if __name__ == "__main__":
     async def main():
-        await process_batch(limit=120000, tax_type=None, batch_limit=600)
+        await process_batch(limit=120000, tax_type=None, batch_limit=20)
 
     asyncio.run(main())
 
