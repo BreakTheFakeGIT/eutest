@@ -7,8 +7,8 @@ Area = Literal['vat','pit','cit','pcc','psd','akcyza',
 
 # ---------- MAIN ----------
 questions_main: List[str] = [
-    "W punktach, wypisz 5 słów kluczowych z tekstu?",
-    "W punktach, wypisz artykuły, przepisy wskazane w tekście?",
+    "W punktach, wypisz 5 fraz kluczowych z tekstu?",
+    "W punktach maksymalnie w 5, wypisz artykuły, przepisy wskazane w tekście?",
     "Krótko w 3 punktach, podsumuj fragment tekstu?"
 ]
 
