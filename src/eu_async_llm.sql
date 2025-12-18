@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS qa_results (
 -- PROD: Embeddings of answers for retrieval/RAG
 CREATE TABLE IF NOT EXISTS answer_embeddings_qa (
   id BIGSERIAL NOT NULL PRIMARY KEY,
-  qa_results_id BIGINT NOT NULL REFERENCES qa_results_test(id) ON DELETE CASCADE,
+  qa_results_id BIGINT NOT NULL REFERENCES qa_results(id) ON DELETE CASCADE,
   text_id INTEGER NOT NULL,
   tax_type TEXT NOT NULL,
   question_id SMALLINT NOT NULL,
